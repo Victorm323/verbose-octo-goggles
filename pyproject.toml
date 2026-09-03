@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dominord"
+version = "0.1.0"
+description = "Dominican domino engine: board reconstruction, hand inference and position evaluation"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE.md" }
+dependencies = []
+
+[project.scripts]
+dominord = "dominord.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[tool.setuptools]
+packages = ["dominord"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"
