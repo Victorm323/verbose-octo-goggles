@@ -163,3 +163,24 @@ def test_console_reports_mistakes_without_dying():
     assert "⚠" in text
     assert "comando desconocido" in text
     assert "Nosotros 0 - 0 Ellos" in text
+
+
+def test_salida_can_be_named_before_the_deal():
+    """At a live table you often deal, look at your hand, and only then say
+    who opened - and it may not be you."""
+    session = new_session()
+    session.match.next_opener = 2          # what 'salida socio' records
+    view = session.start_hand(parse_tiles("5-5 3-1 0-0 2-6 4-4 5-0 6-4"))
+    assert view.opener == 2 and view.turn == 2
+
+
+def test_console_accepts_salida_before_mano():
+    text = run_console(
+        "nombres Yo Juan Socio Pedro\n"
+        "salida socio\n"
+        "mano 5-5 3-1 0-0 2-6 4-4 5-0 6-4\n"
+        "socio 6-6\n"
+    )
+    assert "⚠" not in text
+    assert "sale Socio" in text
+    assert "Socio juega [6|6]" in text

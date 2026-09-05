@@ -64,6 +64,9 @@ class Session:
         """
         tiles = set(hero_tiles)
         forced: Optional[Tile] = None
+        if opener is None:
+            # 'salida <jugador>' before the deal parks the seat here.
+            opener = self.match.next_opener
         if self.match.is_first_hand:
             forced = _forced_first_tile(self.rules)
             if opener is None:
