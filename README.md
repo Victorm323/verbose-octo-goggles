@@ -129,6 +129,14 @@ Two ideas do most of the work:
 Strength check (`scripts/benchmark.py`, 6 matches, patio rules): the engine pair
 beat the "drop your heaviest legal tile" pair **5–1**, 1319 points to 717.
 
+## What's next
+
+`docs/NEXT_SESSION.md` is a work plan for the next session: closing the engine's
+known weaknesses (variance in the bar, the uniform prior over deals, PIMC's
+strategy fusion, match-aware play) and putting the board in a **browser** —
+a local SVG app (`python3 -m dominord web`) plus a self-contained replay page you
+can share. `CLAUDE.md` holds the conventions and the invariants not to break.
+
 ## Repository note
 
 This repository was created from n8n's node-starter template; the leftover
