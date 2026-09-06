@@ -1,5 +1,13 @@
 # Instructions for the next session
 
+> **Superseded in part by [`ROADMAP.md`](ROADMAP.md).** The decision has been
+> taken to build the native engine first and go for superhuman play, live
+> partner modelling and an anonymous replay corpus. Follow `ROADMAP.md` for
+> sequencing; the packages below stay valid as the detailed backlog, and
+> WP4 (variance), WP5 (match objective), WP6 (inference), WP9 (full-match
+> persistence, now the replay schema) and WP10 (browser UI) are referenced
+> directly from it.
+
 Two goals, in this order of value:
 
 1. **Close the known weaknesses of the engine** (§B) — the search's blind spots,

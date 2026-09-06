@@ -131,7 +131,13 @@ beat the "drop your heaviest legal tile" pair **5–1**, 1319 points to 717.
 
 ## What's next
 
-`docs/NEXT_SESSION.md` is a work plan for the next session: closing the engine's
+`docs/ROADMAP.md` is the plan of record: a native Rust core (the same engine on
+Android, the web and Python), a learned value function trained from exactly
+solved endgames, belief search on the opening plies, live Bayesian partner
+modelling that adapts to a stranger inside the first hand, and an anonymous
+replay corpus — game id and moves only, no names — that feeds retraining.
+
+`docs/NEXT_SESSION.md` is the detailed backlog behind it: closing the engine's
 known weaknesses (variance in the bar, the uniform prior over deals, PIMC's
 strategy fusion, match-aware play) and putting the board in a **browser** —
 a local SVG app (`python3 -m dominord web`) plus a self-contained replay page you
