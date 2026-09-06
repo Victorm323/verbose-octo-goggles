@@ -10,14 +10,7 @@ import type { RuleOverrides } from './config';
 import { createMatch, advance, applyMove, legalMoves, summarize } from './match';
 import { observationFor, type Observation } from './observation';
 import { deserializeMatch, serializeMatch, type SerializedMatch } from './serialize';
-import type {
-	HandResult,
-	MatchState,
-	MatchSummary,
-	Move,
-	Seat,
-	TeamId,
-} from './types';
+import type { HandResult, MatchState, MatchSummary, Move, Seat, TeamId } from './types';
 
 export type EngineEvent =
 	| { readonly type: 'move'; readonly move: Move; readonly handNumber: number }

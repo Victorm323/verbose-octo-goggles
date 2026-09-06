@@ -68,7 +68,11 @@ export const strategicBot: Bot = {
 	decide(observation: Observation, rng: RngState): BotDecision {
 		const moves = observation.legalMoves;
 		if (moves.length === 1) {
-			return { move: moves[0], rng, reason: moves[0].type === 'pass' ? 'no tile fits' : 'only legal move' };
+			return {
+				move: moves[0],
+				rng,
+				reason: moves[0].type === 'pass' ? 'no tile fits' : 'only legal move',
+			};
 		}
 
 		const scored = bestScoring(moves, (move) => scoreMove(move, observation));

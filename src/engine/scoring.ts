@@ -13,14 +13,7 @@
 
 import type { RuleConfig } from './config';
 import { sumPips, type Tile } from './tiles';
-import {
-	partnerOf,
-	seatsOfTeam,
-	teamOf,
-	type HandResult,
-	type Seat,
-	type TeamId,
-} from './types';
+import { partnerOf, seatsOfTeam, teamOf, type HandResult, type Seat, type TeamId } from './types';
 
 export type Hands = readonly [readonly Tile[], readonly Tile[], readonly Tile[], readonly Tile[]];
 

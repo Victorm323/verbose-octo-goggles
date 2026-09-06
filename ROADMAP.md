@@ -61,14 +61,20 @@ same operations to workflows, which is why the engine lives in this repository.
 ### Phase 6 — Tooling
 - [x] CLI: `simulate` (batch playouts + win rates), `replay` (verbose single match),
       `play` (interactive seat against bots)
-- [x] n8n node `Dominican Dominoes` with `newMatch`, `legalMoves`, `applyMove`,
-      `botMove`, `playOut` operations over serialized state
+- [x] n8n node `Dominican Dominoes` with `newMatch`, `legalMoves`, `observation`,
+      `applyMove`, `botMove` and `playOut` operations over serialized state
 
 ### Phase 7 — Verification
 - [x] Unit tests: tiles, RNG determinism, board, legal moves, scoring, capicúa, tranca
 - [x] Integration tests: full matches, serialization round-trips, replay determinism
 - [x] Invariant fuzzing: 28 tiles conserved, no illegal passes, hands always terminate
 - [x] `pnpm test`, `pnpm build`, `pnpm lint` all green
+
+## Status
+
+Every phase above is implemented. `pnpm build`, `pnpm lint` and `pnpm test` all pass; the
+suite is 120 tests, including an invariant pass over 120 bot-played matches. See the
+README for the API and the CLI.
 
 ## Rule reference (defaults)
 

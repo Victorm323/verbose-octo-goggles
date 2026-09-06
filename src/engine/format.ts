@@ -59,7 +59,9 @@ export function describeResult(result: HandResult): string {
 		result.outcome === 'domino'
 			? `${SEAT_LABELS[result.closingSeat]} went out`
 			: `tranca closed by ${SEAT_LABELS[result.closingSeat]}`;
-	const bonus = result.capicua ? ` including a capicúa bonus of ${result.points - result.pipPoints}` : '';
+	const bonus = result.capicua
+		? ` including a capicúa bonus of ${result.points - result.pipPoints}`
+		: '';
 
 	return `Hand ${result.handNumber}: ${how} — ${TEAM_LABELS[team]} scores ${result.points}${bonus} (${tally}).`;
 }
@@ -104,5 +106,7 @@ export function formatMatch(state: MatchState): string {
 
 /** The hand replayed move by move. */
 export function formatLog(hand: HandState): string {
-	return hand.log.map((record) => `  ${String(record.ply + 1).padStart(2)}. ${describeRecord(record)}`).join('\n');
+	return hand.log
+		.map((record) => `  ${String(record.ply + 1).padStart(2)}. ${describeRecord(record)}`)
+		.join('\n');
 }

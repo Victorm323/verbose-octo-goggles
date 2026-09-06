@@ -120,10 +120,7 @@ export interface Opening {
  * Later hands are led by the previous hand's winner, with a free choice of tile, so this
  * is only consulted when a match starts.
  */
-export function determineOpening(
-	hands: readonly (readonly Tile[])[],
-	rules: RuleConfig,
-): Opening {
+export function determineOpening(hands: readonly (readonly Tile[])[], rules: RuleConfig): Opening {
 	if (rules.opening === 'fixed-seat') {
 		return { seat: rules.openingSeat, mustOpenWith: null };
 	}
@@ -141,10 +138,7 @@ export function determineOpening(
 	return highestDoubleOpening(hands, rules);
 }
 
-function highestDoubleOpening(
-	hands: readonly (readonly Tile[])[],
-	rules: RuleConfig,
-): Opening {
+function highestDoubleOpening(hands: readonly (readonly Tile[])[], rules: RuleConfig): Opening {
 	let bestSeat: Seat | null = null;
 	let best: Tile | null = null;
 

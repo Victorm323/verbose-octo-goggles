@@ -100,8 +100,7 @@ export function observationFor(state: MatchState, seat: Seat): Observation {
 	const unseen = unseenTiles(hand.board, own);
 	const isMyTurn = hand.status === 'playing' && hand.turn === seat;
 
-	const mustOpenWith =
-		hand.board.length === 0 && seat === hand.starter ? hand.mustOpenWith : null;
+	const mustOpenWith = hand.board.length === 0 && seat === hand.starter ? hand.mustOpenWith : null;
 
 	return {
 		seat,

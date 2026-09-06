@@ -9,7 +9,14 @@ import { shuffle, type RngState } from './rng';
 import { assertMoveLegal, isCapicua, legalMovesFor, legalPlays } from './rules';
 import { settleDomino, settleTranca, type Hands } from './scoring';
 import { fullSet, removeTile, type Pip, type Tile } from './tiles';
-import { nextSeat, type HandState, type Move, type MoveRecord, type PlayMove, type Seat } from './types';
+import {
+	nextSeat,
+	type HandState,
+	type Move,
+	type MoveRecord,
+	type PlayMove,
+	type Seat,
+} from './types';
 
 /** Shuffles the double-six set and deals `handSize` tiles to each of the four seats. */
 export function dealHands(rng: RngState, handSize: number): { hands: Hands; rng: RngState } {

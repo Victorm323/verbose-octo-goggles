@@ -1,33 +1,43 @@
 {
-  "name": "n8n-nodes-<...>",
+  "name": "n8n-nodes-dominican-dominoes",
   "version": "0.1.0",
-  "description": "",
+  "description": "A deterministic rules engine for Dominican dominoes, with bots, a CLI and an n8n node",
   "keywords": [
-    "n8n-community-node-package"
+    "n8n-community-node-package",
+    "dominoes",
+    "domino",
+    "game-engine"
   ],
   "license": "MIT",
-  "homepage": "",
+  "homepage": "https://github.com/Victorm323/verbose-octo-goggles#readme",
   "author": {
-    "name": "",
-    "email": ""
+    "name": "Victorm323",
+    "email": "Victorm323@users.noreply.github.com"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/<...>/n8n-nodes-<...>.git"
+    "url": "https://github.com/Victorm323/verbose-octo-goggles.git"
   },
   "engines": {
     "node": ">=18.10",
     "pnpm": ">=9.1"
   },
   "packageManager": "pnpm@9.1.4",
-  "main": "index.js",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "bin": {
+    "dominoes": "dist/src/cli/index.js"
+  },
   "scripts": {
     "preinstall": "npx only-allow pnpm",
     "build": "tsc && gulp build:icons",
     "dev": "tsc --watch",
-    "format": "prettier nodes credentials --write",
+    "format": "prettier nodes credentials src test --write",
     "lint": "eslint nodes credentials package.json",
     "lintfix": "eslint nodes credentials package.json --fix",
+    "test": "tsc -p tsconfig.test.json && node --test \".tmp/test-build/test/*.test.js\"",
+    "cli": "tsc && node dist/src/cli/index.js",
+    "simulate": "pnpm cli simulate",
     "prepublishOnly": "pnpm build && pnpm lint -c .eslintrc.prepublish.js nodes credentials package.json"
   },
   "files": [
@@ -40,11 +50,13 @@
       "dist/credentials/HttpBinApi.credentials.js"
     ],
     "nodes": [
+      "dist/nodes/DominicanDominoes/DominicanDominoes.node.js",
       "dist/nodes/ExampleNode/ExampleNode.node.js",
       "dist/nodes/HttpBin/HttpBin.node.js"
     ]
   },
   "devDependencies": {
+    "@types/node": "^20.19.43",
     "@typescript-eslint/parser": "^7.15.0",
     "eslint": "^8.56.0",
     "eslint-plugin-n8n-nodes-base": "^1.16.1",

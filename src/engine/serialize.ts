@@ -10,14 +10,7 @@ import { isChainConsistent } from './board';
 import { resolveRules, type RuleConfig } from './config';
 import { fail } from './errors';
 import type { RngState } from './rng';
-import {
-	coerceTile,
-	isPip,
-	tileId,
-	type Pip,
-	type Tile,
-	type TileId,
-} from './tiles';
+import { coerceTile, isPip, tileId, type Pip, type Tile, type TileId } from './tiles';
 import {
 	isSeat,
 	type Board,
@@ -244,7 +237,8 @@ function deserializeLog(input: unknown): MoveRecord[] {
 			ply: asCount(raw.ply ?? index, `hand.log[${index}].ply`),
 			seat: asSeat(raw.seat, `hand.log[${index}].seat`),
 			type,
-			tile: raw.tile === null || raw.tile === undefined ? null : coerceTile(raw.tile as Tile | TileId),
+			tile:
+				raw.tile === null || raw.tile === undefined ? null : coerceTile(raw.tile as Tile | TileId),
 			end: (raw.end ?? null) as MoveRecord['end'],
 			endsBefore: asEnds(raw.endsBefore, `hand.log[${index}].endsBefore`),
 			endsAfter: asEnds(raw.endsAfter, `hand.log[${index}].endsAfter`),

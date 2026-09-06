@@ -129,7 +129,8 @@ export function advance(state: MatchState): MatchState {
 
 export function summarize(state: MatchState): MatchSummary {
 	const loser = state.winner === null ? null : state.winner === 0 ? 1 : 0;
-	const loserScore = loser === null ? Math.min(state.scores[0], state.scores[1]) : state.scores[loser];
+	const loserScore =
+		loser === null ? Math.min(state.scores[0], state.scores[1]) : state.scores[loser];
 
 	return {
 		winner: state.winner,
