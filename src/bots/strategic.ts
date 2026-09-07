@@ -41,7 +41,13 @@ import {
 } from './heuristics';
 import type { Bot, BotDecision } from './types';
 
-/** Feature weights. Tuned by self-play; see `pnpm simulate`. */
+/**
+ * Feature weights.
+ *
+ * Hand-picked, then checked against the other bots with `runTournament` — not fitted by
+ * self-play or any optimiser. They are a starting point, not an optimum; `pnpm simulate`
+ * measures the effect of changing them.
+ */
 const WEIGHTS = {
 	winsHand: 10_000,
 	capicua: 500,

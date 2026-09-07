@@ -1,7 +1,7 @@
 {
 	"extends": "./tsconfig.json",
 	"compilerOptions": {
-		"outDir": "./.tmp/test-build",
+		"outDir": "./tmp/test-build",
 		"incremental": false,
 		"removeComments": false
 	},

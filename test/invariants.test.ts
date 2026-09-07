@@ -48,8 +48,8 @@ function assertPositionSane(state: MatchState, where: string): void {
 	assert.ok(state.hand.consecutivePasses < 4, `${where}: four passes should have ended the hand`);
 	assert.deepEqual(
 		[...state.scores],
-		state.results.reduce(
-			(totals, result) => {
+		state.history.reduce(
+			(totals, { result }) => {
 				if (result.winningTeam !== null) totals[result.winningTeam] += result.points;
 				return totals;
 			},

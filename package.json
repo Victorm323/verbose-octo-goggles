@@ -35,7 +35,7 @@
     "format": "prettier nodes credentials src test --write",
     "lint": "eslint nodes credentials package.json",
     "lintfix": "eslint nodes credentials package.json --fix",
-    "test": "tsc -p tsconfig.test.json && node --test \".tmp/test-build/test/*.test.js\"",
+    "test": "tsc -p tsconfig.test.json && node --test tmp/test-build/test/*.test.js",
     "cli": "tsc && node dist/src/cli/index.js",
     "simulate": "pnpm cli simulate",
     "prepublishOnly": "pnpm build && pnpm lint -c .eslintrc.prepublish.js nodes credentials package.json"

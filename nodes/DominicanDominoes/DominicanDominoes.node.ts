@@ -1,6 +1,7 @@
 import type {
 	IDataObject,
 	IExecuteFunctions,
+	INode,
 	INodeExecutionData,
 	INodeType,
 	INodeTypeDescription,
@@ -217,20 +218,21 @@ export class DominicanDominoes implements INodeType {
 		const output: INodeExecutionData[] = [];
 
 		for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
+			const item = items[itemIndex];
 			try {
 				const operation = this.getNodeParameter('operation', itemIndex) as string;
-				const json = runOperation(this, operation, itemIndex);
+				const json = runOperation(this, operation, itemIndex, item);
 				output.push({ json, pairedItem: itemIndex });
 			} catch (error) {
 				if (this.continueOnFail()) {
 					output.push({
-						json: this.getInputData(itemIndex)[0].json,
+						json: item.json,
 						error: error as NodeOperationError,
 						pairedItem: itemIndex,
 					});
 					continue;
 				}
-				throw new NodeOperationError(this.getNode(), error as Error, { itemIndex });
+				throw asNodeError(this.getNode(), error, itemIndex);
 			}
 		}
 
@@ -238,22 +240,46 @@ export class DominicanDominoes implements INodeType {
 	}
 }
 
+/**
+ * Wraps an engine error so the workflow actually sees what went wrong.
+ *
+ * n8n replaces the message of anything that is not one of its own error types with
+ * "Internal error", which would turn every rules violation — wrong seat, illegal
+ * placement, malformed state — into the same useless line. Passing `message` explicitly
+ * keeps the engine's own wording, and the machine-readable code goes in the description.
+ */
+function asNodeError(node: INode, error: unknown, itemIndex: number): NodeOperationError {
+	if (error instanceof NodeOperationError) {
+		return error;
+	}
+
+	const cause = error instanceof Error ? error : new Error(String(error));
+	const code = (error as { code?: unknown }).code;
+
+	return new NodeOperationError(node, cause, {
+		itemIndex,
+		message: cause.message,
+		description: typeof code === 'string' ? `Engine error code: ${code}` : undefined,
+	});
+}
+
 function runOperation(
 	context: IExecuteFunctions,
 	operation: string,
 	itemIndex: number,
+	item: INodeExecutionData,
 ): IDataObject {
 	switch (operation) {
 		case 'newMatch':
 			return newMatch(context, itemIndex);
 		case 'legalMoves':
-			return listLegalMoves(context, itemIndex);
+			return listLegalMoves(context, itemIndex, item);
 		case 'observation':
-			return observation(context, itemIndex);
+			return observation(context, itemIndex, item);
 		case 'applyMove':
-			return applyOneMove(context, itemIndex);
+			return applyOneMove(context, itemIndex, item);
 		case 'botMove':
-			return applyBotMove(context, itemIndex);
+			return applyBotMove(context, itemIndex, item);
 		case 'playOut':
 			return playOut(context, itemIndex);
 		default:
@@ -274,12 +300,22 @@ function seedFrom(context: IExecuteFunctions, itemIndex: number): number | strin
 	return Number.isFinite(numeric) ? numeric : raw;
 }
 
-/** Reads the match state from the parameter, falling back to the incoming item. */
-function stateFrom(context: IExecuteFunctions, itemIndex: number): MatchState {
+/**
+ * Reads the match state from the parameter, falling back to the incoming item.
+ *
+ * The item is passed in rather than fetched: `getInputData(n)` selects an input *branch*,
+ * not the nth item, so using it here would read the wrong thing the moment a batch of more
+ * than one item arrives.
+ */
+function stateFrom(
+	context: IExecuteFunctions,
+	itemIndex: number,
+	item: INodeExecutionData,
+): MatchState {
 	const parameter = context.getNodeParameter('state', itemIndex, '') as unknown;
 	const candidate =
 		parameter === '' || parameter === undefined || parameter === null
-			? (context.getInputData(itemIndex)[0].json as IDataObject).state
+			? (item.json as IDataObject).state
 			: parameter;
 
 	if (candidate === undefined || candidate === null) {
@@ -314,8 +350,12 @@ function newMatch(context: IExecuteFunctions, itemIndex: number): IDataObject {
 	return describeState(state);
 }
 
-function listLegalMoves(context: IExecuteFunctions, itemIndex: number): IDataObject {
-	const state = stateFrom(context, itemIndex);
+function listLegalMoves(
+	context: IExecuteFunctions,
+	itemIndex: number,
+	item: INodeExecutionData,
+): IDataObject {
+	const state = stateFrom(context, itemIndex, item);
 	return {
 		turn: state.hand.turn,
 		handNumber: state.hand.handNumber,
@@ -323,8 +363,12 @@ function listLegalMoves(context: IExecuteFunctions, itemIndex: number): IDataObj
 	};
 }
 
-function observation(context: IExecuteFunctions, itemIndex: number): IDataObject {
-	const state = stateFrom(context, itemIndex);
+function observation(
+	context: IExecuteFunctions,
+	itemIndex: number,
+	item: INodeExecutionData,
+): IDataObject {
+	const state = stateFrom(context, itemIndex, item);
 	const seat = context.getNodeParameter('seat', itemIndex, 0) as Seat;
 	const view = observationFor(state, seat);
 
@@ -344,8 +388,12 @@ function observation(context: IExecuteFunctions, itemIndex: number): IDataObject
 	};
 }
 
-function applyOneMove(context: IExecuteFunctions, itemIndex: number): IDataObject {
-	const state = stateFrom(context, itemIndex);
+function applyOneMove(
+	context: IExecuteFunctions,
+	itemIndex: number,
+	item: INodeExecutionData,
+): IDataObject {
+	const state = stateFrom(context, itemIndex, item);
 	const raw = context.getNodeParameter('move', itemIndex) as unknown;
 	const move = deserializeMove(typeof raw === 'string' ? JSON.parse(raw) : raw);
 	const autoAdvance = context.getNodeParameter('autoAdvance', itemIndex, true) as boolean;
@@ -354,8 +402,12 @@ function applyOneMove(context: IExecuteFunctions, itemIndex: number): IDataObjec
 	return describeState(autoAdvance ? advance(played) : played);
 }
 
-function applyBotMove(context: IExecuteFunctions, itemIndex: number): IDataObject {
-	const state = stateFrom(context, itemIndex);
+function applyBotMove(
+	context: IExecuteFunctions,
+	itemIndex: number,
+	item: INodeExecutionData,
+): IDataObject {
+	const state = stateFrom(context, itemIndex, item);
 	const name = context.getNodeParameter('bot', itemIndex, 'strategic') as string;
 	const autoAdvance = context.getNodeParameter('autoAdvance', itemIndex, true) as boolean;
 

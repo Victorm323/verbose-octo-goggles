@@ -47,6 +47,8 @@ same operations to workflows, which is why the engine lives in this repository.
 
 ### Phase 4 — Match lifecycle and API
 - [x] `createMatch`, `applyMove`, `startNextHand`, `legalMoves`, `isMatchOver`
+- [x] `state.history`: every settled hand with its moves and final tiles, so a finished
+      match can be replayed rather than just scored
 - [x] `DominoEngine` facade with auto-advance and an event log
 - [x] `observationFor(state, seat)`: own hand, tile counts, unseen tiles, known voids
 - [x] `serializeMatch` / `deserializeMatch` with validation on the way back in
@@ -68,12 +70,15 @@ same operations to workflows, which is why the engine lives in this repository.
 - [x] Unit tests: tiles, RNG determinism, board, legal moves, scoring, capicúa, tranca
 - [x] Integration tests: full matches, serialization round-trips, replay determinism
 - [x] Invariant fuzzing: 28 tiles conserved, no illegal passes, hands always terminate
+- [x] Integration surfaces: CLI argument parsing, and the n8n node driven through a stub
+      of its execution context
 - [x] `pnpm test`, `pnpm build`, `pnpm lint` all green
+- [x] CI on every push and pull request, across Node 18 and 22
 
 ## Status
 
 Every phase above is implemented. `pnpm build`, `pnpm lint` and `pnpm test` all pass; the
-suite is 120 tests, including an invariant pass over 120 bot-played matches. See the
+suite is 165 tests, including an invariant pass over 120 bot-played matches. See the
 README for the API and the CLI.
 
 ## Rule reference (defaults)

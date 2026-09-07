@@ -15,6 +15,7 @@ import {
 	isSeat,
 	type Board,
 	type End,
+	type HandRecord,
 	type HandResult,
 	type HandState,
 	type MatchState,
@@ -57,6 +58,14 @@ export interface SerializedHand {
 	readonly mustOpenWith: TileId | null;
 }
 
+export interface SerializedHandRecord {
+	readonly handNumber: number;
+	readonly starter: Seat;
+	readonly result: HandResult;
+	readonly log: readonly SerializedMoveRecord[];
+	readonly finalHands: readonly TileId[][];
+}
+
 export interface SerializedMatch {
 	readonly version: number;
 	readonly rules: RuleConfig;
@@ -66,7 +75,7 @@ export interface SerializedMatch {
 	readonly hand: SerializedHand;
 	readonly status: MatchState['status'];
 	readonly winner: MatchState['winner'];
-	readonly results: readonly HandResult[];
+	readonly history: readonly SerializedHandRecord[];
 }
 
 export function serializeMove(move: Move): Record<string, unknown> {
@@ -100,7 +109,29 @@ export function serializeMatch(state: MatchState): SerializedMatch {
 		hand: serializeHand(state.hand),
 		status: state.status,
 		winner: state.winner,
-		results: state.results,
+		history: state.history.map(serializeHandRecord),
+	};
+}
+
+function serializeLog(log: readonly MoveRecord[]): SerializedMoveRecord[] {
+	return log.map((record) => ({
+		ply: record.ply,
+		seat: record.seat,
+		type: record.type,
+		tile: record.tile === null ? null : tileId(record.tile),
+		end: record.end,
+		endsBefore: record.endsBefore,
+		endsAfter: record.endsAfter,
+	}));
+}
+
+function serializeHandRecord(record: HandRecord): SerializedHandRecord {
+	return {
+		handNumber: record.handNumber,
+		starter: record.starter,
+		result: record.result,
+		log: serializeLog(record.log),
+		finalHands: record.finalHands.map((tiles: readonly Tile[]) => tiles.map(tileId)),
 	};
 }
 
@@ -117,15 +148,7 @@ function serializeHand(hand: HandState): SerializedHand {
 			seat: placed.seat,
 			end: placed.end,
 		})),
-		log: hand.log.map((record) => ({
-			ply: record.ply,
-			seat: record.seat,
-			type: record.type,
-			tile: record.tile === null ? null : tileId(record.tile),
-			end: record.end,
-			endsBefore: record.endsBefore,
-			endsAfter: record.endsAfter,
-		})),
+		log: serializeLog(hand.log),
 		consecutivePasses: hand.consecutivePasses,
 		status: hand.status,
 		result: hand.result,
@@ -159,25 +182,45 @@ export function deserializeMatch(input: unknown): MatchState {
 		hand,
 		status,
 		winner,
-		results: Array.isArray(raw.results) ? (raw.results as HandResult[]) : [],
+		history: deserializeHistory(raw.history),
 	};
+}
+
+function deserializeHistory(input: unknown): HandRecord[] {
+	if (input === undefined || input === null) return [];
+	if (!Array.isArray(input)) {
+		fail('MALFORMED_STATE', 'match.history must be an array');
+	}
+
+	return input.map((entry, index) => {
+		const raw = asObject(entry, `match.history[${index}]`);
+		const record: HandRecord = {
+			handNumber: asPositiveInt(raw.handNumber, `match.history[${index}].handNumber`),
+			starter: asSeat(raw.starter, `match.history[${index}].starter`),
+			result: asObject(raw.result, `match.history[${index}].result`) as unknown as HandResult,
+			log: deserializeLog(raw.log),
+			finalHands: asFourHands(raw.finalHands, `match.history[${index}].finalHands`),
+		};
+		return record;
+	});
+}
+
+function asFourHands(input: unknown, where: string): [Tile[], Tile[], Tile[], Tile[]] {
+	if (!Array.isArray(input) || input.length !== 4) {
+		fail('MALFORMED_STATE', `${where} must be an array of four hands`);
+	}
+
+	return input.map((tiles, index) => {
+		if (!Array.isArray(tiles)) {
+			fail('MALFORMED_STATE', `${where}[${index}] must be an array`);
+		}
+		return tiles.map((t) => coerceTile(t as Tile | TileId));
+	}) as [Tile[], Tile[], Tile[], Tile[]];
 }
 
 function deserializeHand(input: unknown, rules: RuleConfig): HandState {
 	const raw = asObject(input, 'hand');
-	const handsRaw = raw.hands;
-
-	if (!Array.isArray(handsRaw) || handsRaw.length !== 4) {
-		fail('MALFORMED_STATE', 'hand.hands must be an array of four hands');
-	}
-
-	const hands = handsRaw.map((tiles, index) => {
-		if (!Array.isArray(tiles)) {
-			fail('MALFORMED_STATE', `hand.hands[${index}] must be an array`);
-		}
-		return tiles.map((t) => coerceTile(t as Tile | TileId));
-	}) as [Tile[], Tile[], Tile[], Tile[]];
-
+	const hands = asFourHands(raw.hands, 'hand.hands');
 	const board = deserializeBoard(raw.board);
 	if (!isChainConsistent(board)) {
 		fail('MALFORMED_STATE', 'hand.board is not a connected chain');

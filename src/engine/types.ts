@@ -129,6 +129,29 @@ export interface HandState {
 	readonly mustOpenWith: Tile | null;
 }
 
+/**
+ * A hand that has been played out and swept up.
+ *
+ * The tiles are gathered and redealt between hands, so without this the move log of every
+ * hand but the current one would be lost and a finished match would be unreviewable. Keeping
+ * it means a whole match can be replayed, narrated or audited after the fact.
+ */
+export interface HandRecord {
+	readonly handNumber: number;
+	/** Seat that opened the hand. */
+	readonly starter: Seat;
+	readonly result: HandResult;
+	/** Every move of the hand, in order. */
+	readonly log: readonly MoveRecord[];
+	/** Tiles each seat was still holding when the hand ended. */
+	readonly finalHands: readonly [
+		readonly Tile[],
+		readonly Tile[],
+		readonly Tile[],
+		readonly Tile[],
+	];
+}
+
 export type MatchStatus = 'playing' | 'finished';
 
 export interface MatchState {
@@ -139,7 +162,8 @@ export interface MatchState {
 	readonly hand: HandState;
 	readonly status: MatchStatus;
 	readonly winner: TeamId | null;
-	readonly results: readonly HandResult[];
+	/** Every hand played so far, oldest first, with its moves. */
+	readonly history: readonly HandRecord[];
 }
 
 export interface MatchSummary {

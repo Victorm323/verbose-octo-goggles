@@ -71,9 +71,9 @@ describe('running a match', () => {
 			state = applyMove(state, legalMoves(state)[0]);
 		}
 
-		const result = state.results[0];
+		const result = state.history[0].result;
 		assert.ok(result !== undefined);
-		assert.equal(state.results.length, 1);
+		assert.equal(state.history.length, 1);
 		if (result.winningTeam !== null) {
 			assert.equal(state.scores[result.winningTeam], result.points);
 		}
@@ -103,7 +103,7 @@ describe('running a match', () => {
 		assert.ok(isMatchOver(state));
 		assert.ok(summary.winner !== null);
 		assert.ok(state.scores[summary.winner as 0 | 1] >= 100);
-		assert.equal(state.results.length, summary.hands);
+		assert.equal(state.history.length, summary.hands);
 		assert.throws(
 			() => applyMove(state, { type: 'pass', seat: state.hand.turn }),
 			(error: unknown) => error instanceof EngineError && error.code === 'MATCH_FINISHED',
@@ -113,7 +113,7 @@ describe('running a match', () => {
 	it('adds up: the running score is the sum of the hands won', () => {
 		const { state } = playMatch({ seating: SEATING, seed: 99, rules: { targetScore: 150 } });
 		const totals: [number, number] = [0, 0];
-		for (const result of state.results) {
+		for (const { result } of state.history) {
 			if (result.winningTeam !== null) totals[result.winningTeam] += result.points;
 		}
 		assert.deepEqual([...state.scores], totals);

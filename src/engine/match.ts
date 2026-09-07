@@ -8,7 +8,7 @@ import { applyHandMove, createHand, dealHands, legalHandMoves } from './hand';
 import { createRng, type RngState } from './rng';
 import { determineOpening } from './rules';
 import { applyResultToScores } from './scoring';
-import type { HandResult, MatchState, MatchSummary, Move, Seat, TeamId } from './types';
+import type { HandRecord, HandResult, MatchState, MatchSummary, Move, Seat, TeamId } from './types';
 
 export interface CreateMatchOptions {
 	/** Any number or string; the same seed always deals the same match. */
@@ -35,8 +35,13 @@ export function createMatch(options: CreateMatchOptions = {}): MatchState {
 		}),
 		status: 'playing',
 		winner: null,
-		results: [],
+		history: [],
 	};
+}
+
+/** The scoreboard view of `history`: one result per hand played, oldest first. */
+export function handResults(state: MatchState): HandResult[] {
+	return state.history.map((record) => record.result);
 }
 
 /** Legal moves for the seat on turn. Empty once the hand is settled. */
@@ -75,11 +80,21 @@ export function applyMove(state: MatchState, move: Move): MatchState {
 	const scores = applyResultToScores(state.scores, result);
 	const winner = winningTeam(scores, state.rules);
 
+	// Fold the hand into the history now, while its moves are still on the table. The next
+	// deal replaces `hand` wholesale, so this is the only chance to keep them.
+	const record: HandRecord = {
+		handNumber: hand.handNumber,
+		starter: hand.starter,
+		result,
+		log: hand.log,
+		finalHands: hand.hands,
+	};
+
 	return {
 		...state,
 		hand,
 		scores,
-		results: [...state.results, result],
+		history: [...state.history, record],
 		status: winner === null ? 'playing' : 'finished',
 		winner,
 	};
@@ -135,7 +150,7 @@ export function summarize(state: MatchState): MatchSummary {
 	return {
 		winner: state.winner,
 		scores: state.scores,
-		hands: state.results.length,
+		hands: state.history.length,
 		shutout: state.winner !== null && loserScore === 0,
 		zapato: state.winner !== null && loserScore < state.rules.targetScore / 2,
 	};

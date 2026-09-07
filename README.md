@@ -68,6 +68,25 @@ player held nothing matching either end at that moment, and since hands only shr
 stays true for the rest of the hand. That read is most of what separates the strategic bot
 from the greedy one.
 
+### Match history
+
+The tiles are gathered up and redealt between hands, so `state.hand.log` only ever
+describes the hand currently on the table. Every settled hand is folded into
+`state.history` as it is scored, with its moves and the tiles each seat was left holding:
+
+```ts
+for (const { handNumber, starter, result, log, finalHands } of state.history) {
+  console.log(`Hand ${handNumber}, led by seat ${starter}: ${describeResult(result)}`);
+  for (const record of log) console.log('  ', describeRecord(record));
+}
+
+handResults(state); // just the scoreboard, one result per hand
+```
+
+That makes a finished match reviewable rather than just a final score. It costs payload:
+a full match to 200 serializes to roughly 30 KB, against about 4 KB for the current hand
+alone.
+
 ### Persistence
 
 `serializeMatch` / `deserializeMatch` (and the `toJson` / `fromJson` wrappers) round-trip a
@@ -153,12 +172,19 @@ ROADMAP.md      what was built and which variants are supported
 
 ## Testing
 
-The suite covers tiles, RNG determinism, board mechanics, legal moves, every ending
-(dominó, tranca, tie, capicúa), match flow, serialization and the bots. On top of the unit
-tests, an invariant pass plays 120 bot matches and asserts on every position that all 28
-tiles are accounted for, the chain connects, a pass is never offered beside a playable
-tile, and the scoreboard equals the sum of the hands won — and then checks the run actually
-reached the awkward endings it claims to cover.
+165 tests under `node --test`, covering tiles, RNG determinism, board mechanics, legal
+moves, every ending (dominó, tranca, tie, capicúa), match flow, history, serialization and
+the bots. The two integration surfaces are covered too: the CLI argument parser directly,
+and the n8n node through a stub of the execution context, which exercises the real
+`execute` path rather than the functions underneath it.
+
+On top of the unit tests, an invariant pass plays 120 bot matches and asserts on every
+position that all 28 tiles are accounted for, the chain connects, a pass is never offered
+beside a playable tile, and the scoreboard equals the sum of the hands won — then checks
+the run actually reached the awkward endings it claims to cover.
+
+CI runs `build`, `lint`, `test`, a formatting check and a CLI smoke test on Node 18 and 22
+for every push and pull request.
 
 ## License
 
