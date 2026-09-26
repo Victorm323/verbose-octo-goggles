@@ -129,6 +129,83 @@ Two ideas do most of the work:
 Strength check (`scripts/benchmark.py`, 6 matches, patio rules): the engine pair
 beat the "drop your heaviest legal tile" pair **5–1**, 1319 points to 717.
 
+## In the browser — Dominord Mesa
+
+`web/` is the engine ported to dependency-free JavaScript plus a one-page app.
+It runs entirely in the browser, with the search in a Web Worker so tapping
+never waits on the engine. Build it into a single file:
+
+```bash
+python3 scripts/build_web.py          # → dist/dominord-mesa.html, open it from disk
+```
+
+(or serve `web/` with `python3 -m http.server` while developing).
+
+**Reconstruct a live table.** Tap your seven tiles, say who has the 6|6, then
+record each play, pass and draw as it happens: tap the tile in the 28-tile grid,
+or type `juan 6-4`, `paso`, `5-3 l`, `undo`. The app keeps the chain, the ends
+and the turn, and rejects impossible entries with the reason (a seat that
+passed on the 5 cannot turn up with a [5|2]).
+
+**Odds.** Every unseen tile in the grid shows who holds it, computed exactly over
+all deals still consistent with the plays and passes. It also shows who can
+answer each number, and when a holder is certain the tile is badged with their
+initial.
+
+**Evaluation bar.** Expected hand points for your pair with a 95% band, chance of
+taking the hand, chance of winning the match from the current score, tranque
+odds, and the best play for the seat on turn (a prediction for the seats you
+cannot see) with each option's interval.
+
+**Play 1 vs 1 or 2 vs 2** against the engine. Heads-up is played drawing from
+the pozo or with 14 tiles asleep; in 2 vs 2 you get an engine partner. Engine
+players only ever see their own hand. Coach mode shows the bar and tells you
+when the engine would have played differently. Take-back is supported.
+
+### What makes it stronger than the Python engine
+
+| | Python `DEFAULT` | Browser |
+|---|---|---|
+| Solver | dict-keyed alpha-beta, ~50k nodes/s | 28-bit hand masks, Zobrist TT shared across deals, **~3.1M nodes/s** (full ply-0 solve ≈ 0.1 s vs 4.5 s) |
+| Exact endgame | ≤ 14 tiles in hand | ≤ 22 (Quick), 24 (Normal), **every ply** (Deep) |
+| Deals | 80 sampled | sampled up to budget; **all of them** once ≤ 300–3000 remain |
+| Soft information | ignored | deals weighted by how plausible each observed choice was (WP1) |
+| Bar noise | point estimate | 95% interval, common random numbers, top-two separation test (WP4) |
+| Suit odds | 400 Monte Carlo samples | exact second DP (WP6) |
+| Objective shown | hand points | hand points **and** P(win the match) (WP5, first cut) |
+| Formats | 2 vs 2 | 2 vs 2, 1 vs 1 drawing, 1 vs 1 no drawing |
+
+### Is it correct, and is it strong?
+
+`tests/js/` holds the conformance suite. The Python engine is the oracle:
+fixtures from it (1,200 scorings across every preset, 160 positions' legal moves
+and **exact solve values**, 120 positions' deal counts and marginals) must match
+exactly. On top of that are self-checks Python cannot provide (alpha-beta+TT ==
+plain minimax in every preset including 1v1 with drawing, uniform sampling,
+exact suit odds against brute force, apply/undo hash restoration).
+
+```bash
+python3 tests/js/make_fixtures.py > tests/js/fixtures.json
+node --test tests/js/*.test.js
+python3 scripts/build_web.py && NODE_PATH=$(npm root -g) node tests/e2e/mesa.e2e.js   # Chromium, both modes
+```
+
+Strength is measured with the duplicate harness from ROADMAP Phase 0
+(`scripts/duplicate.js`). Each deal is played twice with the engines swapping
+pairs, so deal luck cancels. Numbers are hand points per deal for the first
+engine, with a 95% CI:
+
+| Match-up (patio rules, single hands) | Deals | Margin | 95% CI |
+|---|---|---|---|
+| Quick vs heaviest-tile patio player | 150 | **+23.6** | [+18.8, +28.4] |
+| Quick vs the Python engine's `DEFAULT` | 150 | +3.4 | [−1.8, +8.7] |
+| Quick with choice weighting vs without | 150 | +1.9 | [−2.9, +6.6] |
+
+Read that honestly. The browser engine is clearly far stronger than a typical
+patio player. Its edge over the Python engine and the value of choice weighting
+are both positive but not yet significant at 150 deals. Hand-to-hand sd is ~30
+points even when paired, so resolving a 2–3 point edge takes ~1,000 deals.
+
 ## What's next
 
 `docs/ROADMAP.md` is the plan of record: a native Rust core (the same engine on

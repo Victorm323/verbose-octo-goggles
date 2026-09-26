@@ -14,3 +14,7 @@ __pycache__/
 *.egg-info/
 build/
 .venv/
+
+# Browser engine
+tests/js/fixtures.json
+tests/e2e/out/

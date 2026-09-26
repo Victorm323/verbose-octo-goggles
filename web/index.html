@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Dominord Mesa</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar" id="topbar"></header>
+<main class="app">
+  <div class="col">
+    <section class="panel" aria-label="Table">
+      <div class="tablewrap">
+        <div class="evalbar" id="evalbar" role="meter" aria-label="Evaluation bar"></div>
+        <div class="mesa-grid" id="mesa"></div>
+      </div>
+    </section>
+    <section class="panel" id="entrypanel" aria-label="Tile entry">
+      <div id="entry"></div>
+      <form class="cmd" id="cmdform" autocomplete="off">
+        <input id="cmd" aria-label="Quick entry" placeholder="juan 6-4 · paso · 5-3 l · robo · undo" spellcheck="false">
+        <button class="btn" type="submit">Enter</button>
+      </form>
+      <div class="hint" id="cmdhint">Quick entry: <span class="mono">[seat] tile [l|r]</span>, <span class="mono">paso</span>, <span class="mono">robo [tile]</span>, <span class="mono">undo</span>. Seat defaults to whoever is on turn.</div>
+    </section>
+    <section class="panel" aria-label="History">
+      <header><h2>History</h2><span class="hint" id="histhint"></span></header>
+      <div id="history"></div>
+    </section>
+  </div>
+  <div class="col">
+    <section class="panel" id="analysis" aria-live="polite"></section>
+  </div>
+</main>
+<div id="sheet"></div>
+<div id="toast"></div>
+<script src="engine.js" id="engine-file"></script>
+<script src="app.js"></script>
+</body>
+</html>
