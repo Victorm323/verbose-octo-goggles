@@ -198,12 +198,16 @@ engine, with a 95% CI:
 | Match-up (patio rules, single hands) | Deals | Margin | 95% CI |
 |---|---|---|---|
 | Quick vs heaviest-tile patio player | 150 | **+23.6** | [+18.8, +28.4] |
-| Quick vs the Python engine's `DEFAULT` | 150 | +3.4 | [−1.8, +8.7] |
+| Quick vs the Python engine's `DEFAULT` | 400 | **+5.3** | [+2.0, +8.5] |
+| Normal vs the Python engine's `DEFAULT` | 200 | −1.3 | [−6.1, +3.5] |
 | Quick with choice weighting vs without | 150 | +1.9 | [−2.9, +6.6] |
 
-Read that honestly. The browser engine is clearly far stronger than a typical
-patio player. Its edge over the Python engine and the value of choice weighting
-are both positive but not yet significant at 150 deals. Hand-to-hand sd is ~30
+Read that honestly. The browser engine is far stronger than a typical patio
+player, and at the Quick setting it beats the Python engine significantly. Two
+things are **not** shown yet: that the deeper settings play better than Quick
+(Normal is no better than Python so far, which smells like PIMC strategy fusion
+growing with exact depth — WP2/Phase 3 territory), and that choice weighting
+helps. Hand-to-hand sd is ~30
 points even when paired, so resolving a 2–3 point edge takes ~1,000 deals.
 
 ## What's next
