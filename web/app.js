@@ -694,7 +694,7 @@
         + '<div class="stats"><span><b>' + count + '</b> tiles</span>'
         + (exp !== null ? '<span>' + (hand !== null ? '' : '≈') + '<b>' + exp.toFixed(hand !== null ? 0 : 1) + '</b> pts</span>' : '') + '</div>';
       const sty = U.snap && U.snap.styles && U.snap.styles[s];
-      if (sty && t && t.moves.some((m) => m.p === s && m.k === 'play')) {
+      if (sty && t && t.moves.filter((m) => m.p === s && m.k === 'play').length >= 2) {
         let top = null;
         for (const k in sty) if (!top || sty[k] > sty[top]) top = k;
         html += '<div class="style" title="How this player has been choosing, judged from every play so far">'
@@ -743,7 +743,8 @@
     const nr = netOdds() ? netReadNow(t) : null;
     if (nr && nr.belief) {
       const prob = (s, x) => nr.belief[x * (n() + 1) + s];
-      bel = Object.assign({}, bel, { prob: (s, x) => (bel.prob(s, x) === 1 ? 1 : prob(s, x)) });
+      const exact = bel;
+      bel = Object.assign({}, exact, { prob: (s, x) => (exact.prob(s, x) === 1 ? 1 : prob(s, x)) });
     }
     const order = [];
     for (let k = 1; k < n(); k++) order.push((S.hero + k) % n());

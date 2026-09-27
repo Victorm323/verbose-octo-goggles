@@ -1587,7 +1587,10 @@
       this.styles = this.net ? ['net', 'greedy', 'heavy', 'random'] : ['greedy', 'heavy', 'random'];
       this.strong = this.net ? 'net' : 'greedy';
       this.posterior = null;
-      if (!this.over && this.weighting && !r.draw) this._modelSeats();
+      // styleModel:false keeps the pre-Phase-4 path (static choice weighting,
+      // greedy playouts) — kept for the duplicate harness.
+      this.styleModel = opts.styleModel !== false;
+      if (!this.over && this.weighting && this.styleModel && !r.draw) this._modelSeats();
     }
 
     /**
@@ -1661,11 +1664,12 @@
       return a;
     }
 
-    _evalSeat(st, seat, map, w, keep) {
+    _evalSeat(st, seat, map, w, keep, cheap) {
       const cfg = this.cfg, rnd = this.rnd;
       const moverTeam = seat % 2;
       const ms = st.moves(seat);
-      const pol = this.net || this.posterior ? this._policy() : null;
+      // "What would the others do" is a side panel: cheap playouts are enough.
+      const pol = !cheap && (this.net || this.posterior) ? this._policy() : null;
       let best = -Infinity, bestM = null;
       const vals = keep ? new Map() : null;
       for (const m of ms) {
@@ -1708,7 +1712,7 @@
           for (let s = 0; s < r.players; s++) {
             if (s === this.seat) continue;
             st.turn = s;
-            this._evalSeat(st, s, this.other[s], w, false);
+            this._evalSeat(st, s, this.other[s], w, false, true);
             this.otherN[s] += w;
           }
           st.turn = saved;
