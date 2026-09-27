@@ -304,7 +304,7 @@
       U.snapFor = t.moves.length + ':' + (S.viewPly === null ? 'live' : 'past');
       analyst.post({
         type: 'analyze', id, table: t.toJSON(),
-        opts: { effort: S.effort, weighting: S.weighting, team: D.teamOf(S.hero), allSeats: true, seed: 17 + t.moves.length, useNet: netOn() },
+        opts: { effort: S.effort, weighting: S.weighting, team: D.teamOf(S.hero), allSeats: true, seed: 17 + t.moves.length, useNet: netOn(), styleModel: !!S.styleModel },
         scores: S.match.scores,
       });
       renderEval();
@@ -992,6 +992,7 @@
       + ['live', 'normal', 'deep'].map((e) => '<option value="' + e + '"' + (S.effort === e ? ' selected' : '') + '>' + { live: 'Quick', normal: 'Normal', deep: 'Deep' }[e] + '</option>').join('')
       + '</select></label>'
       + '<label title="Weight each imagined deal by how plausible the players’ choices were under it"><input type="checkbox" id="weighting" data-act="weighting"' + (S.weighting ? ' checked' : '') + '> Read their choices</label>'
+      + '<label title="Experimental: judge each player’s style (sharp, steady, heavy-first, erratic) from their plays and simulate them that way. Not yet shown to play better."><input type="checkbox" id="stylemodel" data-act="stylemodel"' + (S.styleModel ? ' checked' : '') + '> Model their style</label>'
       + (NETINFO.doc ? '<label title="Use the self-play network in the search"><input type="checkbox" id="usenet" data-act="usenet"' + (netOn() ? ' checked' : '') + '> Network</label>' : '')
       + (S.mode === 'play' ? '<label><input type="checkbox" id="coach" data-act="coach"' + (S.coach ? ' checked' : '') + '> Coach</label>' : '')
       + '</div></header>';
@@ -1316,6 +1317,7 @@
     const el = ev.target;
     if (el.id === 'effort') { S.effort = el.value; save(); requestAnalysis(); }
     if (el.id === 'weighting') { S.weighting = el.checked; save(); requestAnalysis(); }
+    if (el.id === 'stylemodel') { S.styleModel = el.checked; save(); requestAnalysis(); }
     if (el.id === 'usenet') { S.useNet = el.checked; save(); render(); requestAnalysis(); }
     if (el.id === 'coach') { S.coach = el.checked; save(); render(); requestAnalysis(); }
   });

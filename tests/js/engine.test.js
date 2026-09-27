@@ -237,7 +237,7 @@ test('style model: a seat that always drops its heaviest tile is read as heavy-f
       master.record(D.toRecord(master, m));
     }
     if (master.isOver()) continue;
-    const a = new D.Analysis(master.viewFor(0), { effort: 'live', weighting: true, useNet: false });
+    const a = new D.Analysis(master.viewFor(0), { effort: 'live', weighting: true, useNet: false, styleModel: true });
     if (!a.posterior) continue;
     for (const s of [1, 3]) {
       const p = a.posterior[s];
@@ -274,7 +274,7 @@ test('analysis runs with a network: rollouts to the exact horizon, styles report
   t.record({ k: 'play', p: 1, tile: D.parseTile('6-1') });
   t.record({ k: 'play', p: 2, tile: D.parseTile('6-3') });
   t.record({ k: 'play', p: 3, tile: D.parseTile('1-1') });
-  const snap = D.analyze(t, { effort: 'live', full: true, net, cfg: { timeMs: 800 } });
+  const snap = D.analyze(t, { effort: 'live', full: true, net, styleModel: true, cfg: { timeMs: 800 } });
   assert.ok(snap.net);
   assert.ok(snap.moves.length >= 1 && snap.styles && snap.styles[1]);
   assert.ok(Math.abs(Object.values(snap.styles[1]).reduce((a, b) => a + b, 0) - 1) < 1e-9);

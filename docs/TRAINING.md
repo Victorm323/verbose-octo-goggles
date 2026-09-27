@@ -70,12 +70,17 @@ With the **Network** toggle on, the search also uses it:
    the network until it is small enough to solve exactly (22 tiles at Quick,
    24 at Normal). Then alpha-beta takes over. Before, those early plies were
    greedy one-ply playouts, the weakest link in the search.
-2. **Reading choices (Phase 4).** Every unseen seat gets a posterior over
+2. **Reading choices (Phase 4, opt-in: "Model their style").** Every unseen seat gets a posterior over
    styles: *sharp* (the network), *steady* (one-ply greedy), *heavy-first* and
    *erratic*. It is updated from every tile they chose, averaged over the
    possible deals and shrunk toward the prior. Deals are weighted by how
    plausible the observed plays are under that mixture, and rollouts play each
    seat in its modelled style. The seat panels show it: "plays heavy-first 68%".
+   Measured against the older static weighting on 300 duplicate deals it
+   scored −2.4 pts/hand (CI [−6.4, +1.5]) against engine opponents, which is
+   not an improvement, so it is off by default. Against real patio players,
+   who *are* heavy-first or erratic, the trade-off may differ. That is a
+   question for logged human games (ROADMAP Phase 5).
 3. **Network-only play.** In Play mode the "Network" level is argmax Q with no
    search: instant, and free of PIMC's strategy fusion.
 

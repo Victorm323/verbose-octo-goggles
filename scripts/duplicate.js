@@ -11,8 +11,8 @@
 // Engines: greedy (heaviest legal tile), random, pyparity (the Python
 // engine's DEFAULT config), live | normal | deep, and `net` (the trained
 // network alone, argmax Q, no search).  Flags after a colon: ":noweight"
-// switches off reading the players' choices, ":nostyle" keeps the older
-// static choice weighting and greedy playouts, ":net" lets the search use the
+// switches off reading the players' choices, ":style" turns on the Phase 4
+// per-seat style model (off by default), ":net" lets the search use the
 // network (rollouts, style model).  --net picks the network file
 // (default web/models/dominord-net.json).
 'use strict';
@@ -43,7 +43,7 @@ function chooser(spec) {
   }
   const useNet = flags.includes('net');
   if (useNet) needNet();
-  const opts = { effort: name, weighting: !flags.includes('noweight'), seed: SEED, useNet, styleModel: !flags.includes('nostyle') };
+  const opts = { effort: name, weighting: !flags.includes('noweight'), seed: SEED, useNet, styleModel: flags.includes('style') };
   if (TIME) opts.cfg = { timeMs: TIME };
   return (t) => D.chooseMove(t, opts);
 }

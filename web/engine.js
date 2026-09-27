@@ -1587,9 +1587,10 @@
       this.styles = this.net ? ['net', 'greedy', 'heavy', 'random'] : ['greedy', 'heavy', 'random'];
       this.strong = this.net ? 'net' : 'greedy';
       this.posterior = null;
-      // styleModel:false keeps the pre-Phase-4 path (static choice weighting,
-      // greedy playouts) — kept for the duplicate harness.
-      this.styleModel = opts.styleModel !== false;
+      // Opt-in: modelling each seat's style did not beat the static choice
+      // weighting on the duplicate harness (−2.4 pts/hand over 300 deals, CI
+      // [−6.4, +1.5]) and halves the deals analysed, so it is off by default.
+      this.styleModel = opts.styleModel === true;
       if (!this.over && this.weighting && this.styleModel && !r.draw) this._modelSeats();
     }
 
