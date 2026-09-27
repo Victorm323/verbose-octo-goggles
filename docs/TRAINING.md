@@ -7,6 +7,10 @@ similar branching).
 
 ## Quick start
 
+`checkpoints/cpu2.pt` is the network trained so far (~5M self-play hands on a
+CPU). Pass `--init checkpoints/cpu2.pt` to continue from it instead of from
+scratch.
+
 ```bash
 pip install -e ".[train]"              # numpy + torch; the core stays dependency-free
 python -m dominord.train --out runs/first --hours 12 --actors 12 \
