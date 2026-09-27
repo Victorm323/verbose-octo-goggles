@@ -178,3 +178,43 @@ process.stdout.write(JSON.stringify(cases.map((c) => { net.trunk(Float32Array.fr
         assert abs(c["q"] - c["torch"]) < 1e-4
         assert abs(q - c["q"]) < 1e-4
     assert np.isfinite(js).all()
+
+
+@pytest.mark.skipif(node is None, reason="node not installed")
+def test_every_head_matches_in_javascript(tmp_path):
+    """V, P(win), P(tranque) and the belief logits: torch vs web/engine.js."""
+    pytest.importorskip("torch")
+    import torch
+
+    from dominord.train import model as M
+    from dominord.train.features import state_features
+
+    torch.manual_seed(4)
+    net = M.DomNet(64, 32).eval()
+    path = tmp_path / "net.json"
+    M.export_json(net, path)
+    doc = json.loads(path.read_text())
+    rec = _trajectories(2, 9)[1]
+    g = E.Game(E.make_rules(rec["preset"]), rec["hands"], rec["pozo"], rec["opener"], rec["forced"])
+    cases = []
+    for step in rec["steps"][:10]:
+        s = state_features(g, (g.turn + 1) % g.n)
+        with torch.no_grad():
+            h = net.trunk(torch.from_numpy(s[None]))
+            cases.append({"s": s.tolist(), "v": net.v(h).item() * M.VALUE_SCALE,
+                          "aux": torch.sigmoid(net.aux(h))[0].tolist(), "belief": net.belief(h)[0].tolist()})
+        g.step(step["move"])
+    script = r"""
+const D = require('./web/engine.js');
+const {doc, cases} = JSON.parse(require('fs').readFileSync(0, 'utf8'));
+const net = new D.Net(doc);
+process.stdout.write(JSON.stringify(cases.map((c) => {
+  net.trunk(Float32Array.from(c.s));
+  return { v: net.value(), aux: net.aux(), belief: Array.from(net.beliefLogits()) };
+})));
+"""
+    js = _node(script, {"doc": doc, "cases": cases})
+    for c, j in zip(cases, js):
+        assert abs(c["v"] - j["v"]) < 1e-3
+        assert max(abs(x - y) for x, y in zip(c["aux"], j["aux"])) < 1e-5
+        assert max(abs(x - y) for x, y in zip(c["belief"], j["belief"])) < 1e-4

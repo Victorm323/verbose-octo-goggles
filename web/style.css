@@ -258,3 +258,11 @@ details > summary { cursor: pointer; font-weight: 600; font-size: 13px; margin-t
 }
 .seat .style { font-size: 12px; color: var(--muted); }
 .seat .style b { color: var(--ink); font-weight: 600; }
+.netread { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.pb { display: inline-block; width: 56px; height: 6px; background: var(--line); border-radius: 3px; margin-right: 6px; vertical-align: middle; overflow: hidden; }
+.pb i { display: block; height: 100%; background: var(--us); }
+.evalbar .netmark { position: absolute; left: 0; right: 0; height: 3px; margin-bottom: -1px; background: var(--focus); box-shadow: 0 0 0 1px rgba(0,0,0,.35); }
+.modes.small button { padding: 2px 8px; font-size: 11px; }
+@media (max-width: 640px) {
+  .evalbar .netmark { top: 0; bottom: 0 !important; width: 3px; height: auto; margin: 0 0 0 -1px; right: auto; }
+}

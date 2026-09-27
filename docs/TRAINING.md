@@ -39,7 +39,8 @@ below.
 |---|---|---|
 | Environment | `dominord/train/env.py` | The browser engine's bitmask `State` in Python ints. It plays and scores exactly like `dominord.state`/`scoring` (tested), covering 2v2 and 1v1 with or without drawing. |
 | Features | `dominord/train/features.py` | 227 numbers for one seat's information set plus 48 for a candidate move. Only the seat's own hand and public history, so nothing hidden leaks. `web/engine.js` has an identical twin (tested number for number). |
-| Network | `dominord/train/model.py` | Q(infoset, move), V(infoset) and a belief head. About 150k weights, small enough for the browser to call thousands of times per search. |
+| Network | `dominord/train/model.py` | Four heads on one trunk: **Q** (value of each move), **V** (expected hand points), **win/tranque** (P our pair takes the hand, P it ends blocked) and **belief** (who holds each unseen tile). About 150k weights, small enough for the browser to call thousands of times per search. |
+| Observer rows | `selfplay.play` | At every decision the same moment is also encoded from another seat. V, win/tranque and belief then learn positions where the seat evaluated is *not* the one to move, which is what the UI asks for. Q trains on real decisions only. |
 | Deep Monte-Carlo | `selfplay.py`, `train.py` | Q is regressed straight onto the final hand return of the move played. There is no bootstrapping to diverge, and the policy is argmax Q. |
 | Belief head | `model.py` | Predicts who holds each unseen tile, trained on the true deal. It forces the trunk to learn to read passes and choices, and inference-aware Q values follow. |
 | Population | `selfplay.Population` | Rivals are the current net (45%), a frozen snapshot (30%) or patio-style heuristics (25%). 15% of 2v2 hands give the net a *heuristic partner*. Training only against copies of itself breeds private conventions (the Hanabi failure). |
@@ -49,7 +50,21 @@ below.
 
 ## How the browser uses the network
 
-With a network loaded (the **Network** toggle in the Engine panel):
+**Network read** (Engine panel, instant, no search), from your seat:
+
+| Shown | Head | Meaning |
+|---|---|---|
+| Points, for us · adv | V | expected hand points for your pair; advantage = tanh(V/35), the bar's scale (the yellow tick on the bar) |
+| We take the hand | win | P(your pair wins this hand) |
+| Tranque | win/tranque | P(the hand ends blocked) |
+| Network's choice · chance best | Q | softmax(Q / temperature) over your legal tiles, with each tile's Q in points |
+| Odds grid → **Network** | belief | who holds each unseen tile, masked by everything certain (passes, hand sizes, the table) and renormalised, so it can sharpen the exact odds but never contradict them |
+
+"Chance best" is the network's confidence, a softmax over its own move values
+with a fixed temperature (3 points by default, stored in the export). It is not
+a calibrated frequency.
+
+With the **Network** toggle on, the search also uses it:
 
 1. **Rollouts to the exact horizon.** Each imagined deal is played forward by
    the network until it is small enough to solve exactly (22 tiles at Quick,
@@ -98,3 +113,8 @@ champion reaches the page.
 | `--belief-weight` | 0.2 | weight of the auxiliary who-holds-what loss |
 | `--eval-deals` | 600 | per format per opponent; about 2 minutes on a CPU core |
 | `--rules` | all four | e.g. `--rules patio,formal` for a 2v2 specialist |
+| `--init` | – | start from another run's weights; heads added since start fresh |
+
+The browser uses an ungated network (one that never beat the previous
+champion) only for the read panel. The search switches to it only when the
+export records a promotion, or when you tick **Network** yourself.

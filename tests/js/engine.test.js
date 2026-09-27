@@ -282,3 +282,45 @@ test('analysis runs with a network: rollouts to the exact horizon, styles report
   const m = D.chooseMove(t, { level: 'net', net });
   assert.ok(t.legalPlays(0).includes(m));
 });
+
+test('netRead: move probabilities, win/tranque, and belief masked by certainty', () => {
+  const mk = (rows, cols) => {
+    const a = new Float32Array(rows * (cols || 1));
+    const rnd = D.mulberry32(rows * 17 + (cols || 1));
+    for (let i = 0; i < a.length; i++) a[i] = (rnd() - 0.5) * 0.4;
+    return { shape: cols ? [rows, cols] : [rows], data: Buffer.from(a.buffer).toString('base64') };
+  };
+  const h = 16, qh = 8;
+  const net = new D.Net({
+    format: 'dominord-net/1', stateDim: D.STATE_DIM, actionDim: D.ACTION_DIM, valueScale: 50, hidden: h, qhidden: qh, temperature: 3,
+    layers: {
+      'trunk.0.weight': mk(h, D.STATE_DIM), 'trunk.0.bias': mk(h), 'trunk.2.weight': mk(h, h), 'trunk.2.bias': mk(h),
+      'q.0.weight': mk(qh, h + D.ACTION_DIM), 'q.0.bias': mk(qh), 'q.2.weight': mk(1, qh), 'q.2.bias': mk(1),
+      'v.0.weight': mk(64, h), 'v.0.bias': mk(64), 'v.2.weight': mk(1, 64), 'v.2.bias': mk(1),
+      'aux.0.weight': mk(64, h), 'aux.0.bias': mk(64), 'aux.2.weight': mk(2, 64), 'aux.2.bias': mk(2),
+      'belief.weight': mk(112, h), 'belief.bias': mk(112),
+    },
+  });
+  const r = D.makeRules('patio');
+  const t = new D.Table({ rules: r, opener: 1, hero: 0, forcedOpen: D.DOUBLE_SIX });
+  t.setHand(0, D.parseTiles('6-4 5-5 3-1 0-0 2-6 4-4 5-0'));
+  t.record({ k: 'play', p: 1, tile: D.DOUBLE_SIX });
+  t.record({ k: 'pass', p: 2 });                       // seat 2 has no 6
+  t.record({ k: 'play', p: 3, tile: D.parseTile('6-3') });
+  const read = D.netRead(net, t, 0);
+  assert.ok(read.win > 0 && read.win < 1 && read.tranque > 0 && read.tranque < 1);
+  assert.ok(Math.abs(read.advantage - Math.tanh(read.ev / 35)) < 1e-12);
+  assert.ok(Math.abs(read.moves.reduce((a, m) => a + m.p, 0) - 1) < 1e-9);
+  const nn = 5;
+  const bel = D.buildBeliefs(t);
+  for (const x of bel.tiles) {
+    const row = [0, 1, 2, 3, 4].map((s) => read.belief[x * nn + s]);
+    assert.ok(Math.abs(row.reduce((a, b) => a + b, 0) - 1) < 1e-9);
+    if (D.hasSuit(x, 6)) assert.strictEqual(read.belief[x * nn + 2], 0);   // masked: passed on the 6
+  }
+  // Off turn it still reads the position, without move probabilities.
+  const t2 = t.clone();
+  t2.record({ k: 'play', p: 0, tile: D.parseTile('6-4'), end: 'L' });
+  const read2 = D.netRead(net, t2, 0);
+  assert.ok(read2 && read2.moves === undefined && read2.win > 0);
+});

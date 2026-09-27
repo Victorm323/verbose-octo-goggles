@@ -63,6 +63,9 @@ class Batch:
     actions: np.ndarray
     returns: np.ndarray
     beliefs: np.ndarray
+    win: np.ndarray       # 1 = this seat's pair took the hand, 0 = lost, 0.5 = void
+    tranque: np.ndarray   # 1 = the hand ended blocked
+    qmask: np.ndarray     # 1 = a real decision (trains Q); 0 = an observer row
 
     def __len__(self) -> int:
         return len(self.returns)
@@ -77,6 +80,8 @@ def play(games: list[Game], agents: list[list[Agent]], models: dict, rng: random
     rec_s: list[np.ndarray] = []
     rec_a: list[np.ndarray] = []
     rec_b: list[np.ndarray] = []
+    rec_q: list[float] = []
+    zero_a = np.zeros(ACTION_DIM, np.float32)
     active = list(range(len(games)))
     while active:
         pending: dict[str, list[tuple[int, int, list[int]]]] = {}
@@ -112,21 +117,38 @@ def play(games: list[Game], agents: list[list[Agent]], models: dict, rng: random
                 qs = q[pos:pos + len(legal)]
                 k = rng.randrange(len(legal)) if epsilon and rng.random() < epsilon else int(np.argmax(qs))
                 if key in record:
+                    g = games[gi]
                     rec_game.append(gi)
                     rec_seat.append(seat)
                     rec_s.append(S[j])
                     rec_a.append(A[pos + k])
-                    rec_b.append(belief_targets(games[gi], seat))
+                    rec_b.append(belief_targets(g, seat))
+                    rec_q.append(1.0)
+                    # An observer row: the same moment from another seat, so the
+                    # value/win/tranque/belief heads also learn off-turn positions
+                    # (the UI asks "how do we stand?" whoever is to play).
+                    other = (seat + 1 + rng.randrange(g.n - 1)) % g.n
+                    rec_game.append(gi)
+                    rec_seat.append(other)
+                    rec_s.append(state_features(g, other))
+                    rec_a.append(zero_a)
+                    rec_b.append(belief_targets(g, other))
+                    rec_q.append(0.0)
                 pos += len(legal)
                 games[gi].step(legal[k])
         active = still
-    results = [g.result()[0] for g in games]
-    returns = np.array([results[gi] * (1 if seat % 2 == 0 else -1) for gi, seat in zip(rec_game, rec_seat)],
+    results = [g.result() for g in games]
+    returns = np.array([results[gi][0] * (1 if seat % 2 == 0 else -1) for gi, seat in zip(rec_game, rec_seat)],
                        dtype=np.float32) / VALUE_SCALE
+    win = np.array([0.5 if results[gi][2] is None else float(results[gi][2] == seat % 2)
+                    for gi, seat in zip(rec_game, rec_seat)], dtype=np.float32)
+    tranque = np.array([float(results[gi][1] != "domino") for gi in rec_game], dtype=np.float32)
     if not rec_s:
+        e = np.zeros(0, np.float32)
         return Batch(np.zeros((0, STATE_DIM), np.float32), np.zeros((0, ACTION_DIM), np.float32),
-                     returns, np.zeros((0, 28), np.int64))
-    return Batch(np.stack(rec_s), np.stack(rec_a), returns, np.stack(rec_b))
+                     returns, np.zeros((0, 28), np.int64), e, e, e)
+    return Batch(np.stack(rec_s), np.stack(rec_a), returns, np.stack(rec_b), win, tranque,
+                 np.array(rec_q, dtype=np.float32))
 
 
 def generate(pop: Population, models: dict, snapshots: list[str], n_games: int,

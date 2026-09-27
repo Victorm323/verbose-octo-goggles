@@ -263,7 +263,24 @@
       fetch('models/dominord-net.json').then((r) => (r.ok ? r.json() : null)).then((d) => d && installNet(d)).catch(() => {});
     }
   })();
-  const netOn = () => !!NETINFO.doc && S.useNet !== false;
+  // A network that has passed the training gate (a duplicate-scored win over the
+  // previous champion) drives the search by default; an ungated one only shows
+  // its read until you switch it on.
+  const netGated = () => !!(NETINFO.meta && NETINFO.meta.promoted_on);
+  const netOn = () => !!NETINFO.doc && (S.useNet === undefined ? netGated() : S.useNet);
+  const readOn = () => !!NETINFO.doc;
+  /** The network's instant read from your seat (no search), cached per position. */
+  function netReadNow(t) {
+    if (!t || !readOn() || !D.NET || t.currentHand(S.hero) === null) return null;
+    const key = S.mode + ':' + S.viewPly + ':' + t.moves.length + ':' + JSON.stringify(t.moves[t.moves.length - 1] || null);
+    if (U.nrKey !== key) {
+      let r = null;
+      try { r = D.netRead(D.NET, t, S.hero); } catch (e) { r = null; }
+      U.nr = r; U.nrKey = key;
+    }
+    return U.nr;
+  }
+  const netOdds = () => S.odds === 'net' && readOn();
   let anaTimer = 0;
 
   function analysisWanted(t) {
@@ -616,13 +633,20 @@
   }
 
   // ================================================================ render: eval bar
+  function netMark() {
+    const r = netReadNow(viewTable());
+    if (!r) return '';
+    const v = 50 + 50 * Math.tanh(r.ev / 35);
+    const narrow = window.matchMedia('(max-width: 640px)').matches;
+    return '<div class="netmark" title="Network: ' + sgn(r.ev) + ' pts" style="' + (narrow ? 'left:' + v.toFixed(1) + '%' : 'bottom:' + v.toFixed(1) + '%') + '"></div>';
+  }
   function renderEval() {
     const el = $('#evalbar');
     const s = U.snap;
     const narrow = window.matchMedia('(max-width: 640px)').matches;
     el.classList.toggle('busy', U.busy);
     if (!s || s.ev === undefined) {
-      el.innerHTML = '<div class="fill" style="' + (narrow ? 'width:50%' : 'height:50%') + '"></div><div class="mid"></div>';
+      el.innerHTML = '<div class="fill" style="' + (narrow ? 'width:50%' : 'height:50%') + '"></div><div class="mid"></div>' + netMark();
       el.setAttribute('aria-valuetext', 'no evaluation');
       return;
     }
@@ -631,7 +655,8 @@
     const fill = narrow ? 'width:' + v.toFixed(1) + '%' : 'height:' + v.toFixed(1) + '%';
     const band = narrow ? 'left:auto;right:' + (100 - hi).toFixed(1) + '%;width:' + (hi - lo).toFixed(1) + '%' : 'top:' + (100 - hi).toFixed(1) + '%;height:' + (hi - lo).toFixed(1) + '%';
     el.innerHTML = '<div class="fill" style="' + fill + '"></div><div class="band" style="' + band + '"></div><div class="mid"></div>'
-      + '<div class="val top">' + (s.ev < 0 ? sgn(s.ev, 0) : '') + '</div><div class="val bot">' + (s.ev >= 0 ? sgn(s.ev, 0) : '') + '</div>';
+      + '<div class="val top">' + (s.ev < 0 ? sgn(s.ev, 0) : '') + '</div><div class="val bot">' + (s.ev >= 0 ? sgn(s.ev, 0) : '') + '</div>'
+      + netMark();
     el.setAttribute('aria-valuetext', 'expected ' + sgn(s.ev) + ' points for us');
   }
 
@@ -715,6 +740,11 @@
   // ================================================================ render: entry
   function probCell(bel, t, tile) {
     // Stacked bar: who holds this tile, seat by seat (plus the pozo in 1v1).
+    const nr = netOdds() ? netReadNow(t) : null;
+    if (nr && nr.belief) {
+      const prob = (s, x) => nr.belief[x * (n() + 1) + s];
+      bel = Object.assign({}, bel, { prob: (s, x) => (bel.prob(s, x) === 1 ? 1 : prob(s, x)) });
+    }
     const order = [];
     for (let k = 1; k < n(); k++) order.push((S.hero + k) % n());
     if (bel.bucketOf[n()] !== undefined) order.push(n());
@@ -792,8 +822,12 @@
     const order = [];
     for (let k = 1; k < n(); k++) order.push((S.hero + k) % n());
     if (bel.bucketOf[n()] !== undefined) order.push(n());
-    return '<div class="legend"><span class="label">Who holds it</span>' + order.map((s) => '<span><i style="background:' + seatColor(s) + '"></i>' + esc(nm(s)) + '</span>').join('')
-      + '<span>· exact over ' + bel.total.toLocaleString() + ' possible deal' + (bel.total === 1 ? '' : 's') + '</span></div>';
+    const src = readOn() && D.NET && D.NET.hasBelief
+      ? '<span class="modes small" role="group" aria-label="Odds source"><button data-act="odds" data-v="exact" aria-pressed="' + !netOdds() + '">Exact</button>'
+        + '<button data-act="odds" data-v="net" aria-pressed="' + netOdds() + '">Network</button></span>' : '';
+    return '<div class="legend"><span class="label">Who holds it</span>' + src + order.map((s) => '<span><i style="background:' + seatColor(s) + '"></i>' + esc(nm(s)) + '</span>').join('')
+      + (netOdds() ? '<span>· network read, masked by what is certain</span></div>'
+        : '<span>· exact over ' + bel.total.toLocaleString() + ' possible deal' + (bel.total === 1 ? '' : 's') + '</span></div>');
   }
 
   function renderEntry() {
@@ -972,8 +1006,10 @@
       el.innerHTML = html + '<div class="hint">The hand is over. Scroll back through the history to review any position.</div>' + suitOddsHTML(t);
       return;
     }
+    U.snapChain = t.d.chain.length > 0;
+    const nrHTML = netReadHTML(t);
     if (!s) {
-      el.innerHTML = html + '<div class="hint">Thinking…</div>' + suitOddsHTML(t);
+      el.innerHTML = html + nrHTML + '<div class="hint">Search thinking…</div>' + suitOddsHTML(t);
       return;
     }
     if (s.error) {
@@ -1016,6 +1052,7 @@
       }
       html += '</details>';
     }
+    html += nrHTML;
     html += suitOddsHTML(t);
     html += '<div class="engineinfo">' + (s.exhaustive ? 'Exact over all ' + s.total.toLocaleString() + ' possible deals'
       : s.deals + ' of ' + s.total.toLocaleString() + ' possible deals') + ' · perfect play solved from '
@@ -1024,6 +1061,26 @@
       + (s.net ? ' · network' + (NETINFO.meta && NETINFO.meta.hands ? ' (' + (NETINFO.meta.hands / 1e6).toFixed(1) + 'M self-play hands)' : '') : '')
       + (U.busy ? ' · thinking…' : '') + '</div>';
     el.innerHTML = html;
+  }
+
+  function netReadHTML(t) {
+    const r = netReadNow(t);
+    if (!r) return '';
+    const m = NETINFO.meta || {};
+    let html = '<div class="netread"><h3 class="label">Network read · instant, from your seat</h3>'
+      + '<div class="hint">' + (m.hands ? (m.hands / 1e6).toFixed(1) + 'M self-play hands · ' : '')
+      + (netGated() ? 'passed the strength gate' : 'not yet through the strength gate — treat as a preview') + '</div><div class="kpis">'
+      + '<div class="kpi ' + (r.ev >= 0 ? 'us' : 'them') + '"><div class="label">Points, for us</div><div class="v">' + sgn(r.ev) + ' <small>adv ' + sgn(r.advantage * 100, 0) + '%</small></div></div>'
+      + (r.win !== null ? '<div class="kpi"><div class="label">We take the hand</div><div class="v">' + pct(r.win) + '</div></div>'
+        + '<div class="kpi"><div class="label">Tranque</div><div class="v">' + pct(r.tranque) + '</div></div>' : '')
+      + '</div>';
+    if (r.moves && r.moves.length > 1) {
+      html += '<table class="moves"><thead><tr><th>Network’s choice</th><th>chance best</th><th>value</th></tr></thead><tbody>'
+        + r.moves.slice(0, 7).map((m, i) => '<tr class="' + (i === 0 ? 'top' : '') + '"><td>' + moveLabel(m) + '</td><td>'
+          + '<span class="pb"><i style="width:' + (m.p * 100).toFixed(1) + '%"></i></span>' + pct(m.p) + '</td><td>' + sgn(m.q) + '</td></tr>').join('')
+        + '</tbody></table>';
+    }
+    return html + '</div>';
   }
 
   function suitOddsHTML(t) {
@@ -1249,6 +1306,7 @@
       }
       case 'nexthand': nextHand(); break;
       case 'ply': S.viewPly = +el.dataset.i; const len = (S.mode === 'play' ? S.table.viewFor(S.hero) : S.table).moves.length; if (S.viewPly >= len) S.viewPly = null; render(); requestAnalysis(); break;
+      case 'odds': S.odds = el.dataset.v; save(); renderEntry(); break;
       case 'live': S.viewPly = null; render(); requestAnalysis(); break;
       default: break;
     }

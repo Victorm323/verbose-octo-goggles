@@ -46,6 +46,7 @@ class Replay:
         self.a = np.zeros((cap, ACTION_DIM), np.float32)
         self.g = np.zeros(cap, np.float32)
         self.b = np.full((cap, 28), -1, np.int64)
+        self.o = np.zeros((cap, 3), np.float32)   # win, tranque, qmask
         self.n = 0
         self.i = 0
 
@@ -59,20 +60,26 @@ class Replay:
             self.a[idx] = batch.actions[chunk]
             self.g[idx] = batch.returns[chunk]
             self.b[idx] = batch.beliefs[chunk]
+            self.o[idx, 0] = batch.win[chunk]
+            self.o[idx, 1] = batch.tranque[chunk]
+            self.o[idx, 2] = batch.qmask[chunk]
             self.i = int((self.i + m) % self.cap)
             self.n = min(self.cap, self.n + m)
 
     def sample(self, size: int, rng: np.random.Generator):
         idx = rng.integers(0, self.n, size)
-        return self.s[idx], self.a[idx], self.g[idx], self.b[idx]
+        return self.s[idx], self.a[idx], self.g[idx], self.b[idx], self.o[idx]
 
 
-def loss_fn(net: M.DomNet, s, a, g, b, belief_weight: float):
-    q, v, logits = net(s, a)
-    lq = nn.functional.mse_loss(q, g)
+def loss_fn(net: M.DomNet, s, a, g, b, o, belief_weight: float):
+    q, v, logits, aux = net(s, a)
+    qmask = o[:, 2]
+    # Q only on real decisions; observer rows train the other heads.
+    lq = ((q - g) ** 2 * qmask).sum() / qmask.sum().clamp(min=1.0)
     lv = nn.functional.mse_loss(v, g)
     lb = nn.functional.cross_entropy(logits.reshape(-1, 4), b.reshape(-1), ignore_index=-1)
-    return lq + 0.5 * lv + belief_weight * lb, (lq.item(), lv.item(), lb.item())
+    la = nn.functional.binary_cross_entropy_with_logits(aux, o[:, :2])
+    return lq + 0.5 * lv + belief_weight * lb + 0.5 * la, (lq.item(), lv.item(), lb.item(), la.item())
 
 
 # ---------------------------------------------------------------- actors
@@ -171,6 +178,7 @@ def main(argv=None) -> None:
     ap.add_argument("--eval-deals", type=int, default=600)
     ap.add_argument("--export", default="", help="also copy the exported champion here (e.g. web/models/dominord-net.json)")
     ap.add_argument("--resume", action="store_true")
+    ap.add_argument("--init", default="", help="start from these weights (e.g. an older run's current.pt); new heads start fresh")
     ap.add_argument("--seed", type=int, default=1)
     args = ap.parse_args(argv)
 
@@ -190,6 +198,9 @@ def main(argv=None) -> None:
         hands_total = ck["meta"].get("hands", 0)
         steps = ck["meta"].get("steps", 0)
         t_prev = ck["meta"].get("seconds", 0.0)
+    elif args.init:
+        net = M.load(Path(args.init))
+        print(f"initialised from {args.init}", flush=True)
     net.to(device)
     opt = torch.optim.Adam(net.parameters(), lr=args.lr)
     pop = Population(rules=args.rules.split(","), epsilon=args.epsilon)
@@ -263,10 +274,11 @@ def main(argv=None) -> None:
             if replay.n >= args.min_buffer:
                 net.train()
                 while owed >= args.batch:
-                    s, a, g, b = replay.sample(args.batch, rng_np)
+                    s, a, g, b, o = replay.sample(args.batch, rng_np)
                     s, a = torch.from_numpy(s).to(device), torch.from_numpy(a).to(device)
                     g, b = torch.from_numpy(g).to(device), torch.from_numpy(b).to(device)
-                    loss, parts = loss_fn(net, s, a, g, b, args.belief_weight)
+                    o = torch.from_numpy(o).to(device)
+                    loss, parts = loss_fn(net, s, a, g, b, o, args.belief_weight)
                     opt.zero_grad(set_to_none=True)
                     loss.backward()
                     nn.utils.clip_grad_norm_(net.parameters(), 10.0)
@@ -281,10 +293,11 @@ def main(argv=None) -> None:
                 _atomic_save(net, out / "current.pt", meta())
                 last_sync = now
             if now - last_log >= 30:
-                lq, lv, lb = np.mean(losses, axis=0) if losses else (float("nan"),) * 3
+                lq, lv, lb, la = np.mean(losses, axis=0) if losses else (float("nan"),) * 4
                 log({"t": round(now - t0), "hands": hands_total, "steps": steps, "buffer": replay.n,
                      "decisions_per_s": round(new_dec / (now - last_log)), "loss_q": round(float(lq), 4),
-                     "loss_v": round(float(lv), 4), "loss_belief": round(float(lb), 4)})
+                     "loss_v": round(float(lv), 4), "loss_belief": round(float(lb), 4),
+                     "loss_win_tranque": round(float(la), 4)})
                 losses.clear()
                 new_dec = 0
                 last_log = now

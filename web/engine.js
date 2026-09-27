@@ -1315,6 +1315,10 @@
       for (const k in doc.layers) L[k] = b64ToF32(doc.layers[k].data);
       this.L = L; this.meta = doc.meta || {};
       this.h = doc.hidden; this.qh = doc.qhidden; this.scale = doc.valueScale;
+      this.temperature = doc.temperature || 3;
+      this.hasAux = !!L['aux.0.weight'];
+      this.hasBelief = !!L['belief.weight'];
+      this.a1 = new Float32Array(64); this.a2 = new Float32Array(2); this.bl = new Float32Array(112);
       this.h1 = new Float32Array(this.h); this.h2 = new Float32Array(this.h);
       this.qin = new Float32Array(this.h + ACTION_DIM); this.q1 = new Float32Array(this.qh);
       this.v1 = new Float32Array(64); this.one = new Float32Array(1);
@@ -1339,6 +1343,67 @@
       dense(L['v.0.weight'], L['v.0.bias'], this.h2, this.h, 64, this.v1, true);
       return dense(L['v.2.weight'], L['v.2.bias'], this.v1, 64, 1, this.one, false)[0] * this.scale;
     }
+    /** [P(our pair takes the hand), P(it ends in a tranque)] for the encoded state. */
+    aux() {
+      if (!this.hasAux) return null;
+      const L = this.L;
+      dense(L['aux.0.weight'], L['aux.0.bias'], this.h2, this.h, 64, this.a1, true);
+      dense(L['aux.2.weight'], L['aux.2.bias'], this.a1, 64, 2, this.a2, false);
+      return [1 / (1 + Math.exp(-this.a2[0])), 1 / (1 + Math.exp(-this.a2[1]))];
+    }
+    /** Holder logits per tile: [tile*4 + class], class 0 = pozo, k = relative seat k. */
+    beliefLogits() {
+      if (!this.hasBelief) return null;
+      const L = this.L;
+      return dense(L['belief.weight'], L['belief.bias'], this.h2, this.h, 112, this.bl, false);
+    }
+  }
+
+  /**
+   * Everything the network says about a position from `seat`'s chair (a seat
+   * whose hand the table knows): expected points and advantage for its pair,
+   * P(win the hand), P(tranque), a probability per legal move when it is that
+   * seat's turn, and who holds each unseen tile.  Tile odds are masked by
+   * what is certain (passes, hand sizes, the table) and renormalised, so the
+   * network can sharpen the exact odds but never contradict them.
+   */
+  function netRead(net, table, seat) {
+    if (!net || table.currentHand(seat) === null || table.isOver()) return null;
+    const bel = buildBeliefs(table);
+    const st = table.toState(bel, bel.sample(mulberry32(3)), mulberry32(4));
+    stateFeatures(st, seat, _sf);
+    net.trunk(_sf);
+    const ev = net.value();
+    const aux = net.aux();
+    const out = { seat, ev, advantage: Math.tanh(ev / 35), win: aux ? aux[0] : null, tranque: aux ? aux[1] : null };
+    const logits = net.beliefLogits();
+    if (logits) {
+      const n = table.rules.players;
+      const prob = new Float64Array(28 * (n + 1));   // [tile * (n+1) + absolute seat], seat n = pozo
+      for (const t of bel.tiles) {
+        const cls = [];
+        for (let c = 0; c < 4; c++) {
+          const who = c === 0 ? n : (seat + c) % n;
+          const ok = c === 0 ? bel.bucketOf[n] !== undefined : c < n;
+          cls.push(ok && bel.prob(who, t) > 0 ? [who, logits[t * 4 + c]] : null);
+        }
+        const live = cls.filter(Boolean);
+        if (!live.length) continue;
+        const mx = Math.max(...live.map((x) => x[1]));
+        let z = 0;
+        for (const [, l] of live) z += Math.exp(l - mx);
+        for (const [who, l] of live) prob[t * (n + 1) + who] = Math.exp(l - mx) / z;
+      }
+      out.belief = Array.from(prob);
+    }
+    if (table.turn === seat) {
+      const moves = st.moves(seat);
+      const q = netQs(net, st, seat, moves);
+      const p = softmax(Array.from(q), net.temperature);
+      out.moves = moves.map((m, i) => ({ m, tile: m >= 0 ? m >> 1 : -1, end: m >= 0 ? moveEnd(m) : null, q: q[i], p: p[i] }))
+        .sort((a, b) => b.p - a.p);
+    }
+    return out;
   }
 
   let NET = null;
@@ -1891,7 +1956,7 @@
     scoreTotals, tranqueWinner, scoreState, terminalValue, staticEval, greedyMove, playout,
     State, solve, minimax, resolve, clearTT, SEARCH,
     Table, buildBeliefs, choiceWeight,
-    STATE_DIM, ACTION_DIM, stateFeatures, actionFeatures, Net, setNet, netQs, styleProbs, historyLogLik,
+    STATE_DIM, ACTION_DIM, stateFeatures, actionFeatures, Net, setNet, netQs, netRead, styleProbs, historyLogLik,
     STYLE_PRIOR, STYLE_LABEL,
     get NET() { return NET; },
     EFFORT, Analysis, analyze, chooseMove, toRecord, makeMove, moveEnd,

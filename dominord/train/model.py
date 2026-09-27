@@ -39,6 +39,8 @@ class DomNet(nn.Module):
         self.q = nn.Sequential(nn.Linear(hidden + ACTION_DIM, qhidden), nn.ReLU(), nn.Linear(qhidden, 1))
         self.v = nn.Sequential(nn.Linear(hidden, 64), nn.ReLU(), nn.Linear(64, 1))
         self.belief = nn.Linear(hidden, 28 * 4)
+        # P(our pair takes the hand), P(the hand ends in a tranque) — logits.
+        self.aux = nn.Sequential(nn.Linear(hidden, 64), nn.ReLU(), nn.Linear(64, 2))
 
     def q_values(self, states: torch.Tensor, actions: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
         """Q for each action row; ``idx[i]`` is the state row action i belongs to."""
@@ -50,7 +52,7 @@ class DomNet(nn.Module):
         q = self.q(torch.cat([h, actions], dim=1)).squeeze(1)
         v = self.v(h).squeeze(1)
         b = self.belief(h).view(-1, 28, 4)
-        return q, v, b
+        return q, v, b, self.aux(h)
 
 
 def device_auto(name: str = "auto") -> torch.device:
@@ -73,20 +75,26 @@ def save(model: DomNet, path: Path, meta: dict | None = None) -> None:
 def load(path: Path, device: torch.device | str = "cpu") -> DomNet:
     ck = torch.load(path, map_location="cpu", weights_only=True)
     m = DomNet(ck["hidden"], ck["qhidden"])
-    m.load_state_dict(ck["state"])
+    # strict=False: checkpoints from before a head was added still load; the
+    # new head starts untrained (see --init).
+    m.load_state_dict(ck["state"], strict=False)
     return m.to(device).eval()
 
 
 def export_json(model: DomNet, path: Path, meta: dict | None = None) -> None:
-    """Weights for web/engine.js: float32 little-endian, base64, row-major [out, in]."""
+    """Weights for web/engine.js: float32 little-endian, base64, row-major [out, in].
+
+    Every head is exported: Q (move values), V (expected points), aux (P win,
+    P tranque) and belief (who holds each unseen tile).  ``temperature`` turns
+    Q into move probabilities in the browser: softmax(Q / temperature).
+    """
     layers = {}
     for name, t in model.state_dict().items():
-        if name.startswith(("belief",)):
-            continue  # the browser does not need the auxiliary head
         arr = t.detach().cpu().numpy().astype("<f4")
         layers[name] = {"shape": list(arr.shape), "data": base64.b64encode(arr.tobytes()).decode()}
     doc = {"format": "dominord-net/1", "stateDim": STATE_DIM, "actionDim": ACTION_DIM,
            "valueScale": VALUE_SCALE, "hidden": model.hidden, "qhidden": model.qhidden,
+           "temperature": (meta or {}).get("temperature", 3.0),
            "layers": layers, "meta": meta or {}}
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(doc))
