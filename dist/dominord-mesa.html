@@ -266,6 +266,8 @@ details > summary { cursor: pointer; font-weight: 600; font-size: 13px; margin-t
   .topbar { position: static; }
   .score { margin-left: 0; }
 }
+.seat .style { font-size: 12px; color: var(--muted); }
+.seat .style b { color: var(--ink); font-weight: 600; }
 </style>
 </head>
 <body>
@@ -619,7 +621,11 @@ details > summary { cursor: pointer; font-weight: 600; font-size: 13px; margin-t
       this.pozo = new Int8Array(28); this.pozoLen = 0; this.pozoPtr = 0;
       this.ph1 = new Int32Array(29); this.ph2 = new Int32Array(29);
       this.h1 = 0; this.h2 = 0;
-      this.sp = 0; this.stk = new Int32Array(8 * 512);
+      // Public history the network reads: tiles each seat has played and the
+      // numbers each is known to lack (same rules as Table: a pass adds the
+      // ends, a draw resets to them).
+      this.playedBy = new Int32Array(4); this.voids = new Int32Array(4);
+      this.sp = 0; this.stk = new Int32Array(9 * 512);
     }
     /** Recompute hashes after hands/pozo were written directly. */
     rehash() {
@@ -644,6 +650,7 @@ details > summary { cursor: pointer; font-weight: 600; font-size: 13px; margin-t
       s.last = this.last; s.pc0 = this.pc0; s.pc1 = this.pc1; s.opener = this.opener;
       s.forced = this.forced; s.chainLen = this.chainLen; s.capicua = this.capicua;
       s.pozo.set(this.pozo); s.pozoLen = this.pozoLen; s.pozoPtr = this.pozoPtr;
+      s.playedBy.set(this.playedBy); s.voids.set(this.voids);
       s.rehash();
       return s;
     }
@@ -689,11 +696,13 @@ details > summary { cursor: pointer; font-weight: 600; font-size: 13px; margin-t
     }
     apply(m) {
       const k = this.stk, p = this.sp;
-      this.sp = p + 8;
+      this.sp = p + 9;
       k[p] = m; k[p + 1] = this.left; k[p + 2] = this.right; k[p + 3] = this.turn;
       k[p + 4] = this.passes; k[p + 5] = this.last; k[p + 6] = -1; k[p + 7] = this.capicua;
+      k[p + 8] = this.voids[this.turn];
       const seat = this.turn;
       if (m === PASS) {
+        if (this.chainLen) this.voids[seat] |= (1 << this.left) | (1 << this.right);
         this.passes++;
         if (this.r.pasoCorridoBonus && this.passes === this.n - 1 && this.last >= 0) {
           if (this.last % 2 === 0) { this.pc0++; k[p + 6] = 0; } else { this.pc1++; k[p + 6] = 1; }
@@ -702,6 +711,7 @@ details > summary { cursor: pointer; font-weight: 600; font-size: 13px; margin-t
       } else if (m === DRAW) {
         const t = this.pozo[this.pozoPtr++];
         this.hands[seat] |= 1 << t;
+        this.voids[seat] = this.chainLen ? (1 << this.left) | (1 << this.right) : 0;
         this.h1 ^= Z.own[0][t * 4 + seat]; this.h2 ^= Z.own[1][t * 4 + seat];
       } else {
         const t = m >> 1;
@@ -717,6 +727,7 @@ details > summary { cursor: pointer; font-weight: 600; font-size: 13px; margin-t
           else this.left = LOW[t] === this.left ? HIGH[t] : LOW[t];
         }
         this.hands[seat] &= ~bit;
+        this.playedBy[seat] |= bit;
         this.h1 ^= Z.own[0][t * 4 + seat]; this.h2 ^= Z.own[1][t * 4 + seat];
         this.chainLen++;
         this.passes = 0;
@@ -726,7 +737,7 @@ details > summary { cursor: pointer; font-weight: 600; font-size: 13px; margin-t
     }
     undo() {
       const k = this.stk;
-      const p = (this.sp -= 8);
+      const p = (this.sp -= 9);
       const m = k[p];
       const seat = k[p + 3];
       if (m === PASS) {
@@ -738,14 +749,16 @@ details > summary { cursor: pointer; font-weight: 600; font-size: 13px; margin-t
       } else {
         const t = m >> 1;
         this.hands[seat] |= 1 << t;
+        this.playedBy[seat] &= ~(1 << t);
         this.h1 ^= Z.own[0][t * 4 + seat]; this.h2 ^= Z.own[1][t * 4 + seat];
         this.chainLen--;
       }
       this.left = k[p + 1]; this.right = k[p + 2]; this.turn = seat;
       this.passes = k[p + 4]; this.last = k[p + 5]; this.capicua = k[p + 7];
+      this.voids[seat] = k[p + 8];
     }
     undoTo(sp) { while (this.sp > sp) this.undo(); }
-    lastMove() { return this.sp ? this.stk[this.sp - 8] : PASS; }
+    lastMove() { return this.sp ? this.stk[this.sp - 9] : PASS; }
     handPips() {
       const out = [];
       for (let s = 0; s < this.n; s++) out.push(pipsOf(this.hands[s]));
@@ -991,7 +1004,7 @@ details > summary { cursor: pointer; font-weight: 600; font-size: 13px; margin-t
    * Value of a determinized position for team 0 plus how it ends.  Exact when
    * small enough (and within the node budget), otherwise a greedy playout.
    */
-  function resolve(st, cfg, rnd) {
+  function resolve(st, cfg, rnd, pol) {
     if (st.isOver()) {
       const v = terminalValue(st);
       return { value: v, kind: RES_KIND, winTeam: RES_TEAM, exact: true };
@@ -999,6 +1012,23 @@ details > summary { cursor: pointer; font-weight: 600; font-size: 13px; margin-t
     if (st.tilesLeft() <= cfg.exactTiles) {
       const r = solve(st, 0, cfg.nodeCap);
       if (r) return { value: r.value, kind: r.kind, winTeam: r.winTeam, exact: true };
+    }
+    if (pol) {
+      // Each seat plays its modelled style (the network for strong players)
+      // only until the position is small enough to solve, then it is exact.
+      const sp = st.sp;
+      while (!st.isOver() && st.tilesLeft() > cfg.exactTiles) st.apply(styleMove(pol.styles[st.turn], st, rnd, pol.net));
+      let out;
+      if (st.isOver()) {
+        const v = terminalValue(st);
+        out = { value: v, kind: RES_KIND, winTeam: RES_TEAM, exact: false };
+      } else {
+        const r = solve(st, 0, cfg.nodeCap);
+        out = r ? { value: r.value, kind: r.kind, winTeam: r.winTeam, exact: false }
+          : { value: playout(st, rnd), kind: RES_KIND, winTeam: RES_TEAM, exact: false };
+      }
+      st.undoTo(sp);
+      return out;
     }
     const v = playout(st, rnd);
     return { value: v, kind: RES_KIND, winTeam: RES_TEAM, exact: false };
@@ -1237,6 +1267,7 @@ details > summary { cursor: pointer; font-weight: 600; font-size: 13px; margin-t
       });
       st.left = d.left; st.right = d.right; st.turn = d.turn; st.passes = d.passes; st.last = d.last;
       st.pc0 = d.pc[0]; st.pc1 = d.pc[1]; st.opener = this.opener; st.chainLen = d.chain.length;
+      for (let s = 0; s < r.players; s++) { st.playedBy[s] = d.playedBy[s]; st.voids[s] = d.voids[s]; }
       st.forced = d.chain.length ? -1 : this.forcedOpen;
       if (this.isOver() && d.last >= 0 && d.counts[d.last] === 0 && d.endsBeforeLast) {
         const [L, R] = d.endsBeforeLast;
@@ -1486,6 +1517,249 @@ details > summary { cursor: pointer; font-weight: 600; font-size: 13px; margin-t
     return Math.min(50, Math.max(0.02, w));
   }
 
+  // ==================================================================== network
+  // The self-play network (dominord/train).  stateFeatures / actionFeatures
+  // are line-by-line twins of dominord/train/features.py and must stay so
+  // (tests/test_train_env.py compares them number for number).  They read
+  // only the acting seat's hand plus public history, so they are safe to call
+  // on a determinized State.
+  const STATE_DIM = 227, ACTION_DIM = 48;
+
+  function stateFeatures(st, me, f) {
+    f.fill(0);
+    const n = st.n, r = st.r;
+    let o = 0;
+    const setBits = (off, mask) => { while (mask) { const b = mask & -mask; f[off + 31 - Math.clz32(b)] = 1; mask ^= b; } };
+    setBits(o, st.hands[me]); o += 28;
+    let played = 0;
+    for (let k = 0; k < 4; k++) {
+      if (k < n) { const s = (me + k) % n; setBits(o + k * 28, st.playedBy[s]); played |= st.playedBy[s]; }
+    }
+    o += 112;
+    setBits(o, FULL & ~st.hands[me] & ~played); o += 28;
+    for (let k = 1; k < 4; k++) {
+      if (k < n) {
+        const v = st.voids[(me + k) % n];
+        for (let suit = 0; suit < 7; suit++) if ((v >> suit) & 1) f[o + (k - 1) * 7 + suit] = 1;
+      }
+    }
+    o += 21;
+    for (let k = 0; k < 4; k++) if (k < n) f[o + k] = popcount(st.hands[(me + k) % n]) / 7;
+    o += 4;
+    if (st.chainLen) { f[o + st.left] = 1; f[o + 7 + st.right] = 1; }
+    o += 14;
+    f[o] = st.chainLen === 0 ? 1 : 0; o += 1;
+    f[o + Math.min(st.passes, 3)] = 1; o += 4;
+    f[o] = (st.pozoLen - st.pozoPtr) / 14; o += 1;
+    if (st.last >= 0) f[o + (((st.last - me) % n) + n) % n] = 1;
+    o += 4;
+    const team = me % 2;
+    const pc = [st.pc0, st.pc1];
+    f[o] = pc[team] / 2; f[o + 1] = pc[1 - team] / 2; o += 2;
+    const flags = [n === 2, r.draw, r.handPoints === 'all_remaining', r.tranqueWinner === 'lowest_team_total',
+      r.capicuaBonus > 0, r.chuchazoBonus > 0, r.pasoCorridoBonus > 0];
+    for (let i = 0; i < 7; i++) f[o + i] = flags[i] ? 1 : 0;
+    o += 7;
+    f[o] = st.forced >= 0 && st.chainLen === 0 ? 1 : 0;
+    return f;
+  }
+
+  function actionFeatures(st, m, a) {
+    a.fill(0);
+    let L = st.left, R = st.right;
+    if (m === PASS) a[30] = 1;
+    else if (m === DRAW) a[31] = 1;
+    else {
+      const t = m >> 1;
+      a[t] = 1;
+      if (st.chainLen === 0) { a[29] = 1; L = LOW[t]; R = HIGH[t]; }
+      else {
+        a[28 + (m & 1)] = 1;
+        if (m & 1) R = LOW[t] === R ? HIGH[t] : LOW[t];
+        else L = LOW[t] === L ? HIGH[t] : LOW[t];
+      }
+      a[46] = PIPS[t] / 12;
+      a[47] = LOW[t] === HIGH[t] ? 1 : 0;
+    }
+    if (L >= 0) { a[32 + L] = 1; a[39 + R] = 1; }
+    return a;
+  }
+
+  function b64ToF32(b64) {
+    let bytes;
+    if (typeof atob === 'function') {
+      const s = atob(b64);
+      bytes = new Uint8Array(s.length);
+      for (let i = 0; i < s.length; i++) bytes[i] = s.charCodeAt(i);
+    } else {
+      const buf = Buffer.from(b64, 'base64');
+      bytes = new Uint8Array(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.length));
+    }
+    return new Float32Array(bytes.buffer);
+  }
+
+  function dense(W, b, x, nin, nout, out, relu) {
+    for (let i = 0; i < nout; i++) {
+      let s = b[i];
+      const row = i * nin;
+      for (let j = 0; j < nin; j++) s += W[row + j] * x[j];
+      out[i] = relu && s < 0 ? 0 : s;
+    }
+    return out;
+  }
+
+  /** The exported network (format dominord-net/1), forward pass only. */
+  class Net {
+    constructor(doc) {
+      if (doc.format !== 'dominord-net/1') throw new Error('unknown network format ' + doc.format);
+      if (doc.stateDim !== STATE_DIM || doc.actionDim !== ACTION_DIM) throw new Error('network features do not match this engine');
+      const L = {};
+      for (const k in doc.layers) L[k] = b64ToF32(doc.layers[k].data);
+      this.L = L; this.meta = doc.meta || {};
+      this.h = doc.hidden; this.qh = doc.qhidden; this.scale = doc.valueScale;
+      this.h1 = new Float32Array(this.h); this.h2 = new Float32Array(this.h);
+      this.qin = new Float32Array(this.h + ACTION_DIM); this.q1 = new Float32Array(this.qh);
+      this.v1 = new Float32Array(64); this.one = new Float32Array(1);
+    }
+    /** Encode a state once; q(a) then scores moves against it. */
+    trunk(s) {
+      const L = this.L;
+      dense(L['trunk.0.weight'], L['trunk.0.bias'], s, STATE_DIM, this.h, this.h1, true);
+      dense(L['trunk.2.weight'], L['trunk.2.bias'], this.h1, this.h, this.h, this.h2, true);
+      this.qin.set(this.h2, 0);
+      return this.h2;
+    }
+    /** Q in hand points for the mover's pair. */
+    q(a) {
+      const L = this.L;
+      this.qin.set(a, this.h);
+      dense(L['q.0.weight'], L['q.0.bias'], this.qin, this.h + ACTION_DIM, this.qh, this.q1, true);
+      return dense(L['q.2.weight'], L['q.2.bias'], this.q1, this.qh, 1, this.one, false)[0] * this.scale;
+    }
+    value() {
+      const L = this.L;
+      dense(L['v.0.weight'], L['v.0.bias'], this.h2, this.h, 64, this.v1, true);
+      return dense(L['v.2.weight'], L['v.2.bias'], this.v1, 64, 1, this.one, false)[0] * this.scale;
+    }
+  }
+
+  let NET = null;
+  /** Install (or clear, with null) the network every analysis may use. */
+  function setNet(doc) { NET = doc ? (doc instanceof Net ? doc : new Net(doc)) : null; return NET; }
+
+  const _sf = new Float32Array(STATE_DIM), _af = new Float32Array(ACTION_DIM);
+  /** Q (hand points, mover's pair) of each move for `seat` in `st`. */
+  function netQs(net, st, seat, moves) {
+    stateFeatures(st, seat, _sf);
+    net.trunk(_sf);
+    const out = new Float64Array(moves.length);
+    for (let i = 0; i < moves.length; i++) out[i] = net.q(actionFeatures(st, moves[i], _af));
+    return out;
+  }
+
+  // ------------------------------------------------------------ player styles
+  // The archetypes the partner/opponent model scores (ROADMAP Phase 4).  They
+  // match dominord/train/bots.py, which is also what the network trained
+  // with and against.  Each returns a probability for every legal move.
+  const STYLE_PRIOR = { net: 0.4, greedy: 0.2, heavy: 0.3, random: 0.1 };
+  const STYLE_LABEL = { net: 'sharp', greedy: 'steady', heavy: 'heavy-first', random: 'erratic' };
+
+  function softmax(xs, T) {
+    let mx = -Infinity;
+    for (const x of xs) if (x > mx) mx = x;
+    const out = new Float64Array(xs.length);
+    let z = 0;
+    for (let i = 0; i < xs.length; i++) { out[i] = Math.exp((xs[i] - mx) / T); z += out[i]; }
+    for (let i = 0; i < xs.length; i++) out[i] /= z;
+    return out;
+  }
+  function greedyScores(st, seat, moves) {
+    const team = seat % 2, saved = st.turn;
+    st.turn = seat;
+    const out = moves.map((m) => {
+      st.apply(m);
+      let v;
+      if (st.isOver()) { v = terminalValue(st); if (team === 1) v = -v; } else v = staticEval(st, team);
+      st.undo();
+      return v;
+    });
+    st.turn = saved;
+    return out;
+  }
+  function styleProbs(style, st, seat, moves, net) {
+    if (moves.length === 1) return Float64Array.of(1);
+    if (style === 'random') return new Float64Array(moves.length).fill(1 / moves.length);
+    if (style === 'heavy') return softmax(moves.map((m) => (m >= 0 ? PIPS[m >> 1] : 0)), 0.6);
+    if (style === 'greedy') return softmax(greedyScores(st, seat, moves), 4);
+    if (style === 'net' && net) return softmax(Array.from(netQs(net, st, seat, moves)), 3);
+    return new Float64Array(moves.length).fill(1 / moves.length);
+  }
+  /** One move for the side to move under a style (rollouts). */
+  function styleMove(style, st, rnd, net) {
+    const seat = st.turn;
+    const k = st.gen(seat, _gbuf, 0);
+    if (k === 1) return _gbuf[0];
+    if (style === 'greedy' || (style === 'net' && !net)) return greedyMove(st, rnd);
+    const moves = Array.from(_gbuf.subarray(0, k));
+    if (style === 'random') return moves[Math.floor(rnd() * k)];
+    if (style === 'heavy') {
+      let best = moves[0];
+      for (const m of moves) if (m >= 0 && PIPS[m >> 1] > PIPS[best >> 1]) best = m;
+      return best;
+    }
+    const q = netQs(net, st, seat, moves);
+    let bi = 0;
+    for (let i = 1; i < k; i++) if (q[i] > q[bi]) bi = i;
+    return moves[bi];
+  }
+
+  /**
+   * Log-likelihood of every recorded choice by each unseen seat, under each
+   * style, given one imagined deal: ll[seat * styles.length + i].  Draw games
+   * are skipped (which drawn tiles were kept is not observable).
+   */
+  function historyLogLik(table, bel, assign, styles, net) {
+    const r = table.rules, n = r.players;
+    const ll = new Float64Array(n * styles.length);
+    if (r.draw) return ll;
+    const d = table.d;
+    const st = new State(r);
+    for (let s = 0; s < n; s++) {
+      const h = table.currentHand(s);
+      st.hands[s] = (h === null ? 0 : h) | d.playedBy[s];
+    }
+    bel.buckets.forEach((b, i) => {
+      if (b.seat < n) st.hands[b.seat] = assign[i] | d.playedBy[b.seat];
+      else { const pz = tilesOf(assign[i]); st.pozo.set(pz); st.pozoLen = pz.length; }
+    });
+    st.turn = table.opener; st.opener = table.opener; st.forced = table.forcedOpen;
+    st.rehash();
+    const buf = new Int16Array(40);
+    for (const mv of table.moves) {
+      const seat = mv.p;
+      if (mv.k === 'play') {
+        const code = st.chainLen === 0 ? mv.tile * 2 + 1 : mv.tile * 2 + (mv.end === 'L' ? 0 : 1);
+        if (table.currentHand(seat) === null) {
+          const k = st.gen(seat, buf, 0);
+          if (k > 1) {
+            const moves = Array.from(buf.subarray(0, k));
+            const obs = moves.indexOf(code);
+            if (obs >= 0) {
+              styles.forEach((style, i) => {
+                const p = styleProbs(style, st, seat, moves, net)[obs];
+                ll[seat * styles.length + i] += Math.log(Math.max(p, 1e-6));
+              });
+            }
+          }
+        }
+        st.apply(code);
+      } else if (mv.k === 'pass') {
+        st.apply(PASS);
+      }
+    }
+    return ll;
+  }
+
   // ==================================================================== analysis
   // Measured in Node on one core: solving every child of a determinized
   // position costs ~2 ms at 22 tiles in hand, ~15 ms at 24, ~75 ms at 26.
@@ -1545,6 +1819,76 @@ details > summary { cursor: pointer; font-weight: 600; font-size: 13px; margin-t
       this.started = null; this.elapsed = 0;
       this.knownSeat = table.currentHand(this.seat) !== null;
       this.over = table.isOver();
+      // The network, if one is installed and wanted.
+      this.net = opts.useNet === false ? null : (opts.net ? (opts.net instanceof Net ? opts.net : new Net(opts.net)) : NET);
+      this.styles = this.net ? ['net', 'greedy', 'heavy', 'random'] : ['greedy', 'heavy', 'random'];
+      this.strong = this.net ? 'net' : 'greedy';
+      this.posterior = null;
+      if (!this.over && this.weighting && !r.draw) this._modelSeats();
+    }
+
+    /**
+     * Phase 4: a posterior over each unseen seat's style from the choices it
+     * has made, averaged over imagined deals:
+     *   p(style | history) ∝ prior(style) · E_deal[ Π_t π_style(move_t | deal) ]
+     * shrunk toward the prior so one odd play cannot swing it too far.
+     */
+    _modelSeats() {
+      const t = this.table, n = t.rules.players, S = this.styles;
+      const K = Math.min(48, this.exhaustive ? this.list.length : 48);
+      const rnd = mulberry32(99);
+      const acc = Array.from({ length: n }, () => S.map(() => []));
+      for (let i = 0; i < K; i++) {
+        const assign = this.exhaustive ? this.list[i] : this.bel.sample(rnd);
+        const ll = historyLogLik(t, this.bel, assign, S, this.net);
+        for (let s = 0; s < n; s++) S.forEach((_, j) => acc[s][j].push(ll[s * S.length + j]));
+      }
+      const post = {};
+      const priorZ = S.reduce((a, x) => a + STYLE_PRIOR[x], 0);
+      for (const s of t.unknownSeats()) {
+        const logm = S.map((_, j) => {
+          const xs = acc[s][j];
+          const mx = Math.max.apply(null, xs);
+          return mx + Math.log(xs.reduce((a, x) => a + Math.exp(x - mx), 0) / xs.length);
+        });
+        const lp = logm.map((x, j) => x + Math.log(STYLE_PRIOR[S[j]] / priorZ));
+        const mx = Math.max.apply(null, lp);
+        const e = lp.map((x) => Math.exp(x - mx));
+        const z = e.reduce((a, b) => a + b, 0);
+        post[s] = S.map((x, j) => 0.85 * e[j] / z + 0.15 * STYLE_PRIOR[x] / priorZ);
+      }
+      this.posterior = post;
+    }
+
+    /** Deal weight under the style mixture, relative to a uniform chooser. */
+    _dealWeight(assign) {
+      const t = this.table, S = this.styles;
+      if (!this.posterior) return 1;
+      const ll = historyLogLik(t, this.bel, assign, S, this.net);
+      const ri = S.indexOf('random');
+      let w = 1;
+      for (const s in this.posterior) {
+        const p = this.posterior[s];
+        const base = ll[s * S.length + ri];
+        let mix = 0;
+        S.forEach((_, j) => { mix += p[j] * Math.exp(ll[s * S.length + j] - base); });
+        w *= mix;
+      }
+      return Math.min(50, Math.max(0.02, w));
+    }
+
+    /** Who plays how in this deal's rollouts: a style drawn from each posterior. */
+    _policy() {
+      const t = this.table, n = t.rules.players, S = this.styles;
+      const styles = [];
+      for (let s = 0; s < n; s++) {
+        const p = this.posterior && this.posterior[s];
+        if (!p) { styles.push(this.strong); continue; }
+        let x = this.rnd(), pick = S[S.length - 1];
+        for (let j = 0; j < S.length; j++) { if (x < p[j]) { pick = S[j]; break; } x -= p[j]; }
+        styles.push(pick);
+      }
+      return { styles, net: this.net };
     }
     get done() { return this.over || this.i >= this.maxDeals; }
 
@@ -1558,11 +1902,12 @@ details > summary { cursor: pointer; font-weight: 600; font-size: 13px; margin-t
       const cfg = this.cfg, rnd = this.rnd;
       const moverTeam = seat % 2;
       const ms = st.moves(seat);
+      const pol = this.net || this.posterior ? this._policy() : null;
       let best = -Infinity, bestM = null;
       const vals = keep ? new Map() : null;
       for (const m of ms) {
         st.apply(m);
-        const res = resolve(st, cfg, rnd);
+        const res = resolve(st, cfg, rnd, pol);
         st.undo();
         const v = moverTeam === 0 ? res.value : -res.value;
         const a = this._acc(map, m);
@@ -1586,7 +1931,8 @@ details > summary { cursor: pointer; font-weight: 600; font-size: 13px; margin-t
         if (this.done) break;
         const assign = this.exhaustive ? this.list[this.i] : this.bel.sample(this.rnd);
         this.i++;
-        const w = this.weighting ? choiceWeight(this.table, this.bel, assign, this.temperature) : 1;
+        const w = !this.weighting ? 1 : this.posterior ? this._dealWeight(assign)
+          : choiceWeight(this.table, this.bel, assign, this.temperature);
         const st = this.table.toState(this.bel, assign, this.rnd);
         this.wSum += w; this.w2Sum += w * w;
         // "If the table died right now, who takes the count?"
@@ -1636,7 +1982,15 @@ details > summary { cursor: pointer; font-weight: 600; font-size: 13px; margin-t
         team, seat, deals: this.i, total: this.bel.total, exhaustive: this.exhaustive,
         done: this.done, elapsed: this.elapsed, over: this.over,
         ess: this.w2Sum ? (this.wSum * this.wSum) / this.w2Sum : 0,
+        net: !!this.net,
       };
+      if (this.posterior) {
+        snap.styles = {};
+        for (const s in this.posterior) {
+          snap.styles[s] = {};
+          this.styles.forEach((x, j) => { snap.styles[s][x] = this.posterior[s][j]; });
+        }
+      }
       snap.pipsNow = [];
       for (let s = 0; s < r.players; s++) snap.pipsNow.push(this.bel.expectedPips(s));
       if (this.over || !this.perDeal.length) return snap;
@@ -1737,6 +2091,18 @@ details > summary { cursor: pointer; font-weight: 600; font-size: 13px; margin-t
       for (const m of legal) if (m >= 0 && (best < 0 || PIPS[m >> 1] > PIPS[best >> 1])) best = m;
       return best;
     }
+    if (opts.level === 'net') {
+      // The network alone, no search: argmax Q from this seat's own view.
+      // Any deal consistent with the view gives the same features.
+      const net = opts.net ? (opts.net instanceof Net ? opts.net : new Net(opts.net)) : NET;
+      if (!net) throw new Error('no network loaded');
+      const bel = buildBeliefs(view);
+      const st = view.toState(bel, bel.sample(mulberry32(1)), mulberry32(2));
+      const q = netQs(net, st, seat, legal);
+      let bi = 0;
+      for (let i = 1; i < legal.length; i++) if (q[i] > q[bi]) bi = i;
+      return legal[bi];
+    }
     const snap = analyze(view, Object.assign({ allSeats: false }, opts));
     return snap.moves && snap.moves.length ? snap.moves[0].m : legal[0];
   }
@@ -1827,6 +2193,9 @@ details > summary { cursor: pointer; font-weight: 600; font-size: 13px; margin-t
     scoreTotals, tranqueWinner, scoreState, terminalValue, staticEval, greedyMove, playout,
     State, solve, minimax, resolve, clearTT, SEARCH,
     Table, buildBeliefs, choiceWeight,
+    STATE_DIM, ACTION_DIM, stateFeatures, actionFeatures, Net, setNet, netQs, styleProbs, historyLogLik,
+    STYLE_PRIOR, STYLE_LABEL,
+    get NET() { return NET; },
     EFFORT, Analysis, analyze, chooseMove, toRecord, makeMove, moveEnd,
     handDistribution, matchModel, deal,
     get RES() { return { kind: RES_KIND, team: RES_TEAM }; },
@@ -1905,6 +2274,8 @@ details > summary { cursor: pointer; font-weight: 600; font-size: 13px; margin-t
         }
       } else if (msg.type === 'cancel') {
         current = 0;
+      } else if (msg.type === 'net') {
+        try { D.setNet(msg.doc); } catch (err) { post({ type: 'error', id: -1, error: 'network: ' + err.message }); }
       }
     };
   }
@@ -2081,6 +2452,25 @@ details > summary { cursor: pointer; font-weight: 600; font-size: 13px; margin-t
   // ================================================================ engine plumbing
   const analyst = makeEngine(onAnalyst);
   const player = makeEngine(onPlayer);
+  // The trained network (dominord/train), if the build embedded one or the
+  // dev server has web/models/dominord-net.json.
+  const NETINFO = { doc: null, meta: null };
+  function installNet(doc) {
+    try {
+      const net = D.setNet(doc);
+      NETINFO.doc = doc; NETINFO.meta = net.meta || {};
+      analyst.post({ type: 'net', doc }); player.post({ type: 'net', doc });
+      render(); requestAnalysis();
+    } catch (e) { console.warn('network not loaded:', e.message); }
+  }
+  (function loadNet() {
+    const tag = document.getElementById('net-doc');
+    if (tag && tag.textContent.trim()) { setTimeout(() => installNet(JSON.parse(tag.textContent)), 0); return; }
+    if (location.protocol === 'http:' || location.protocol === 'https:') {
+      fetch('models/dominord-net.json').then((r) => (r.ok ? r.json() : null)).then((d) => d && installNet(d)).catch(() => {});
+    }
+  })();
+  const netOn = () => !!NETINFO.doc && S.useNet !== false;
   let anaTimer = 0;
 
   function analysisWanted(t) {
@@ -2104,7 +2494,7 @@ details > summary { cursor: pointer; font-weight: 600; font-size: 13px; margin-t
       U.snapFor = t.moves.length + ':' + (S.viewPly === null ? 'live' : 'past');
       analyst.post({
         type: 'analyze', id, table: t.toJSON(),
-        opts: { effort: S.effort, weighting: S.weighting, team: D.teamOf(S.hero), allSeats: true, seed: 17 + t.moves.length },
+        opts: { effort: S.effort, weighting: S.weighting, team: D.teamOf(S.hero), allSeats: true, seed: 17 + t.moves.length, useNet: netOn() },
         scores: S.match.scores,
       });
       renderEval();
@@ -2124,8 +2514,15 @@ details > summary { cursor: pointer; font-weight: 600; font-size: 13px; margin-t
     applyMaster(msg.m);
   }
   function levelOpts() {
-    const L = { easy: { level: 'easy' }, normal: { effort: 'live' }, strong: { effort: 'normal' }, max: { effort: 'deep' } };
-    return Object.assign({ weighting: true, seed: 5 + S.table.moves.length }, L[S.level] || L.normal);
+    const net = !!NETINFO.doc;
+    const L = {
+      easy: { level: 'easy' },
+      net: net ? { level: 'net' } : { effort: 'live' },
+      normal: { effort: 'live', useNet: net },
+      strong: { effort: 'normal', useNet: net },
+      max: { effort: 'deep', useNet: net },
+    };
+    return Object.assign({ weighting: true, seed: 5 + S.table.moves.length, useNet: false }, L[S.level] || L.normal);
   }
 
   // ================================================================ actions: setup
@@ -2478,6 +2875,13 @@ details > summary { cursor: pointer; font-weight: 600; font-size: 13px; margin-t
         + '<div class="backs" aria-label="' + count + ' tiles">' + '<i></i>'.repeat(Math.max(0, count)) + '</div>'
         + '<div class="stats"><span><b>' + count + '</b> tiles</span>'
         + (exp !== null ? '<span>' + (hand !== null ? '' : '≈') + '<b>' + exp.toFixed(hand !== null ? 0 : 1) + '</b> pts</span>' : '') + '</div>';
+      const sty = U.snap && U.snap.styles && U.snap.styles[s];
+      if (sty && t && t.moves.some((m) => m.p === s && m.k === 'play')) {
+        let top = null;
+        for (const k in sty) if (!top || sty[k] > sty[top]) top = k;
+        html += '<div class="style" title="How this player has been choosing, judged from every play so far">'
+          + 'plays <b>' + esc(D.STYLE_LABEL[top]) + '</b> ' + pct(sty[top]) + '</div>';
+      }
       if (voids.length) {
         html += '<div class="voids">' + voids.map((v) => '<span class="chip void ' + (side === 'us' ? 'us' : '') + '" title="' + esc(nm(s)) + ' cannot hold a ' + v + '">no ' + v + '</span>').join('') + '</div>';
       }
@@ -2760,6 +3164,7 @@ details > summary { cursor: pointer; font-weight: 600; font-size: 13px; margin-t
       + ['live', 'normal', 'deep'].map((e) => '<option value="' + e + '"' + (S.effort === e ? ' selected' : '') + '>' + { live: 'Quick', normal: 'Normal', deep: 'Deep' }[e] + '</option>').join('')
       + '</select></label>'
       + '<label title="Weight each imagined deal by how plausible the players’ choices were under it"><input type="checkbox" id="weighting" data-act="weighting"' + (S.weighting ? ' checked' : '') + '> Read their choices</label>'
+      + (NETINFO.doc ? '<label title="Use the self-play network in the search"><input type="checkbox" id="usenet" data-act="usenet"' + (netOn() ? ' checked' : '') + '> Network</label>' : '')
       + (S.mode === 'play' ? '<label><input type="checkbox" id="coach" data-act="coach"' + (S.coach ? ' checked' : '') + '> Coach</label>' : '')
       + '</div></header>';
     if (!t) {
@@ -2822,7 +3227,9 @@ details > summary { cursor: pointer; font-weight: 600; font-size: 13px; margin-t
     html += '<div class="engineinfo">' + (s.exhaustive ? 'Exact over all ' + s.total.toLocaleString() + ' possible deals'
       : s.deals + ' of ' + s.total.toLocaleString() + ' possible deals') + ' · perfect play solved from '
       + ({ live: 22, normal: 24, deep: 28 }[S.effort]) + ' tiles · ' + (s.elapsed / 1000).toFixed(1) + ' s'
-      + (S.weighting && s.ess && s.deals ? ' · effective deals ' + Math.round(s.ess) : '') + (U.busy ? ' · thinking…' : '') + '</div>';
+      + (S.weighting && s.ess && s.deals ? ' · effective deals ' + Math.round(s.ess) : '')
+      + (s.net ? ' · network' + (NETINFO.meta && NETINFO.meta.hands ? ' (' + (NETINFO.meta.hands / 1e6).toFixed(1) + 'M self-play hands)' : '') : '')
+      + (U.busy ? ' · thinking…' : '') + '</div>';
     el.innerHTML = html;
   }
 
@@ -2910,7 +3317,8 @@ details > summary { cursor: pointer; font-weight: 600; font-size: 13px; margin-t
         + '</div></div>';
     } else {
       html += '<div class="row2"><label class="field"><span class="label">Engine strength</span><select id="su-level">'
-        + [['easy', 'Easy — plays its heaviest tile'], ['normal', 'Club — quick search'], ['strong', 'Strong — deeper search'], ['max', 'Maximum — exact from the salida']]
+        + [['easy', 'Easy — plays its heaviest tile'], ...(NETINFO.doc ? [['net', 'Network — instant, no search']] : []),
+          ['normal', 'Club — quick search' + (NETINFO.doc ? ' + network' : '')], ['strong', 'Strong — deeper search'], ['max', 'Maximum — exact from the salida']]
           .map(([k, lab]) => '<option value="' + k + '"' + (c.level === k ? ' selected' : '') + '>' + lab + '</option>').join('')
         + '</select></label><label class="field"><span class="label">Coach</span><select id="su-coach"><option value="1"' + (c.coach ? ' selected' : '') + '>On — show the bar, odds and hints</option><option value="0"' + (!c.coach ? ' selected' : '') + '>Off — just play</option></select></label></div>';
     }
@@ -3056,6 +3464,7 @@ details > summary { cursor: pointer; font-weight: 600; font-size: 13px; margin-t
     const el = ev.target;
     if (el.id === 'effort') { S.effort = el.value; save(); requestAnalysis(); }
     if (el.id === 'weighting') { S.weighting = el.checked; save(); requestAnalysis(); }
+    if (el.id === 'usenet') { S.useNet = el.checked; save(); render(); requestAnalysis(); }
     if (el.id === 'coach') { S.coach = el.checked; save(); render(); requestAnalysis(); }
   });
   $('#cmdform').addEventListener('submit', (ev) => {

@@ -67,6 +67,8 @@
         }
       } else if (msg.type === 'cancel') {
         current = 0;
+      } else if (msg.type === 'net') {
+        try { D.setNet(msg.doc); } catch (err) { post({ type: 'error', id: -1, error: 'network: ' + err.message }); }
       }
     };
   }
@@ -243,6 +245,25 @@
   // ================================================================ engine plumbing
   const analyst = makeEngine(onAnalyst);
   const player = makeEngine(onPlayer);
+  // The trained network (dominord/train), if the build embedded one or the
+  // dev server has web/models/dominord-net.json.
+  const NETINFO = { doc: null, meta: null };
+  function installNet(doc) {
+    try {
+      const net = D.setNet(doc);
+      NETINFO.doc = doc; NETINFO.meta = net.meta || {};
+      analyst.post({ type: 'net', doc }); player.post({ type: 'net', doc });
+      render(); requestAnalysis();
+    } catch (e) { console.warn('network not loaded:', e.message); }
+  }
+  (function loadNet() {
+    const tag = document.getElementById('net-doc');
+    if (tag && tag.textContent.trim()) { setTimeout(() => installNet(JSON.parse(tag.textContent)), 0); return; }
+    if (location.protocol === 'http:' || location.protocol === 'https:') {
+      fetch('models/dominord-net.json').then((r) => (r.ok ? r.json() : null)).then((d) => d && installNet(d)).catch(() => {});
+    }
+  })();
+  const netOn = () => !!NETINFO.doc && S.useNet !== false;
   let anaTimer = 0;
 
   function analysisWanted(t) {
@@ -266,7 +287,7 @@
       U.snapFor = t.moves.length + ':' + (S.viewPly === null ? 'live' : 'past');
       analyst.post({
         type: 'analyze', id, table: t.toJSON(),
-        opts: { effort: S.effort, weighting: S.weighting, team: D.teamOf(S.hero), allSeats: true, seed: 17 + t.moves.length },
+        opts: { effort: S.effort, weighting: S.weighting, team: D.teamOf(S.hero), allSeats: true, seed: 17 + t.moves.length, useNet: netOn() },
         scores: S.match.scores,
       });
       renderEval();
@@ -286,8 +307,15 @@
     applyMaster(msg.m);
   }
   function levelOpts() {
-    const L = { easy: { level: 'easy' }, normal: { effort: 'live' }, strong: { effort: 'normal' }, max: { effort: 'deep' } };
-    return Object.assign({ weighting: true, seed: 5 + S.table.moves.length }, L[S.level] || L.normal);
+    const net = !!NETINFO.doc;
+    const L = {
+      easy: { level: 'easy' },
+      net: net ? { level: 'net' } : { effort: 'live' },
+      normal: { effort: 'live', useNet: net },
+      strong: { effort: 'normal', useNet: net },
+      max: { effort: 'deep', useNet: net },
+    };
+    return Object.assign({ weighting: true, seed: 5 + S.table.moves.length, useNet: false }, L[S.level] || L.normal);
   }
 
   // ================================================================ actions: setup
@@ -640,6 +668,13 @@
         + '<div class="backs" aria-label="' + count + ' tiles">' + '<i></i>'.repeat(Math.max(0, count)) + '</div>'
         + '<div class="stats"><span><b>' + count + '</b> tiles</span>'
         + (exp !== null ? '<span>' + (hand !== null ? '' : '≈') + '<b>' + exp.toFixed(hand !== null ? 0 : 1) + '</b> pts</span>' : '') + '</div>';
+      const sty = U.snap && U.snap.styles && U.snap.styles[s];
+      if (sty && t && t.moves.some((m) => m.p === s && m.k === 'play')) {
+        let top = null;
+        for (const k in sty) if (!top || sty[k] > sty[top]) top = k;
+        html += '<div class="style" title="How this player has been choosing, judged from every play so far">'
+          + 'plays <b>' + esc(D.STYLE_LABEL[top]) + '</b> ' + pct(sty[top]) + '</div>';
+      }
       if (voids.length) {
         html += '<div class="voids">' + voids.map((v) => '<span class="chip void ' + (side === 'us' ? 'us' : '') + '" title="' + esc(nm(s)) + ' cannot hold a ' + v + '">no ' + v + '</span>').join('') + '</div>';
       }
@@ -922,6 +957,7 @@
       + ['live', 'normal', 'deep'].map((e) => '<option value="' + e + '"' + (S.effort === e ? ' selected' : '') + '>' + { live: 'Quick', normal: 'Normal', deep: 'Deep' }[e] + '</option>').join('')
       + '</select></label>'
       + '<label title="Weight each imagined deal by how plausible the players’ choices were under it"><input type="checkbox" id="weighting" data-act="weighting"' + (S.weighting ? ' checked' : '') + '> Read their choices</label>'
+      + (NETINFO.doc ? '<label title="Use the self-play network in the search"><input type="checkbox" id="usenet" data-act="usenet"' + (netOn() ? ' checked' : '') + '> Network</label>' : '')
       + (S.mode === 'play' ? '<label><input type="checkbox" id="coach" data-act="coach"' + (S.coach ? ' checked' : '') + '> Coach</label>' : '')
       + '</div></header>';
     if (!t) {
@@ -984,7 +1020,9 @@
     html += '<div class="engineinfo">' + (s.exhaustive ? 'Exact over all ' + s.total.toLocaleString() + ' possible deals'
       : s.deals + ' of ' + s.total.toLocaleString() + ' possible deals') + ' · perfect play solved from '
       + ({ live: 22, normal: 24, deep: 28 }[S.effort]) + ' tiles · ' + (s.elapsed / 1000).toFixed(1) + ' s'
-      + (S.weighting && s.ess && s.deals ? ' · effective deals ' + Math.round(s.ess) : '') + (U.busy ? ' · thinking…' : '') + '</div>';
+      + (S.weighting && s.ess && s.deals ? ' · effective deals ' + Math.round(s.ess) : '')
+      + (s.net ? ' · network' + (NETINFO.meta && NETINFO.meta.hands ? ' (' + (NETINFO.meta.hands / 1e6).toFixed(1) + 'M self-play hands)' : '') : '')
+      + (U.busy ? ' · thinking…' : '') + '</div>';
     el.innerHTML = html;
   }
 
@@ -1072,7 +1110,8 @@
         + '</div></div>';
     } else {
       html += '<div class="row2"><label class="field"><span class="label">Engine strength</span><select id="su-level">'
-        + [['easy', 'Easy — plays its heaviest tile'], ['normal', 'Club — quick search'], ['strong', 'Strong — deeper search'], ['max', 'Maximum — exact from the salida']]
+        + [['easy', 'Easy — plays its heaviest tile'], ...(NETINFO.doc ? [['net', 'Network — instant, no search']] : []),
+          ['normal', 'Club — quick search' + (NETINFO.doc ? ' + network' : '')], ['strong', 'Strong — deeper search'], ['max', 'Maximum — exact from the salida']]
           .map(([k, lab]) => '<option value="' + k + '"' + (c.level === k ? ' selected' : '') + '>' + lab + '</option>').join('')
         + '</select></label><label class="field"><span class="label">Coach</span><select id="su-coach"><option value="1"' + (c.coach ? ' selected' : '') + '>On — show the bar, odds and hints</option><option value="0"' + (!c.coach ? ' selected' : '') + '>Off — just play</option></select></label></div>';
     }
@@ -1218,6 +1257,7 @@
     const el = ev.target;
     if (el.id === 'effort') { S.effort = el.value; save(); requestAnalysis(); }
     if (el.id === 'weighting') { S.weighting = el.checked; save(); requestAnalysis(); }
+    if (el.id === 'usenet') { S.useNet = el.checked; save(); render(); requestAnalysis(); }
     if (el.id === 'coach') { S.coach = el.checked; save(); render(); requestAnalysis(); }
   });
   $('#cmdform').addEventListener('submit', (ev) => {

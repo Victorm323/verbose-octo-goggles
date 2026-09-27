@@ -11,7 +11,8 @@ Writes two files:
   doctype/html/head/body wrapper, for hosts that add their own skeleton.
 
 The engine is inlined as ``<script id="engine-src">`` so the page can both run
-it and hand its source to a Web Worker.
+it and hand its source to a Web Worker.  A trained network in
+``web/models/dominord-net.json`` (docs/TRAINING.md) is embedded when present.
 """
 
 from __future__ import annotations
@@ -39,7 +40,12 @@ def build() -> tuple[Path, Path]:
     html = html.replace('<link rel="stylesheet" href="style.css">', f"<style>\n{css}</style>")
     html = html.replace('<script src="engine.js" id="engine-file"></script>',
                         f'<script id="engine-src">\n{engine}</script>')
-    html = html.replace('<script src="app.js"></script>', f"<script>\n{app}</script>")
+    net_path = WEB / "models" / "dominord-net.json"
+    net_tag = ""
+    if net_path.exists():
+        # The trained network (docs/TRAINING.md); JSON, so it cannot hold "</script".
+        net_tag = f'<script type="application/json" id="net-doc">{_script(net_path.read_text(), "network")}</script>\n'
+    html = html.replace('<script src="app.js"></script>', f"{net_tag}<script>\n{app}</script>")
     for needle in ('href="style.css"', 'src="engine.js"', 'src="app.js"'):
         if needle in html:
             raise SystemExit(f"build left an external reference: {needle}")

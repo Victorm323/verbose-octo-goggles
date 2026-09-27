@@ -20,7 +20,7 @@ from dominord.inference import build_beliefs  # noqa: E402
 from dominord.rules import PRESETS  # noqa: E402
 from dominord.scoring import score_hand, score_totals  # noqa: E402
 from dominord.search import solve  # noqa: E402
-from dominord.state import End, HandState, Pass, Play, deal_tiles  # noqa: E402
+from dominord.state import End, HandState, Pass, deal_tiles  # noqa: E402
 from dominord.table import TableView  # noqa: E402
 
 
@@ -44,7 +44,10 @@ def random_line(rng, rules, stop_tiles, forced=True):
             a, b = state.hands[holder], state.hands[opener]
             six = next(t for t in a if t.low == 6 and t.high == 6)
             swap = next(iter(b))
-            a.discard(six); b.discard(swap); a.add(swap); b.add(six)
+            a.discard(six)
+            b.discard(swap)
+            a.add(swap)
+            b.add(six)
             deal = [set(h) for h in state.hands]
         state.force_open_tile(six if holder != opener else next(
             t for t in state.hands[opener] if t.low == 6 and t.high == 6))

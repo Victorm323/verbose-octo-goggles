@@ -18,3 +18,5 @@ build/
 # Browser engine
 tests/js/fixtures.json
 tests/e2e/out/
+runs/
+runs-cpu1.log

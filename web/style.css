@@ -256,3 +256,5 @@ details > summary { cursor: pointer; font-weight: 600; font-size: 13px; margin-t
   .topbar { position: static; }
   .score { margin-left: 0; }
 }
+.seat .style { font-size: 12px; color: var(--muted); }
+.seat .style b { color: var(--ink); font-weight: 600; }

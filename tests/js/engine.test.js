@@ -219,3 +219,66 @@ test('late positions are analysed over every consistent deal, exactly', () => {
   }
   assert.fail('no late position reached');
 });
+
+test('style model: a seat that always drops its heaviest tile is read as heavy-first', () => {
+  const r = D.makeRules('patio');
+  const rnd = D.mulberry32(8);
+  let hits = 0, tries = 0;
+  for (let g = 0; g < 12; g++) {
+    const dl = D.deal(r, rnd);
+    const open = D.firstOpening(r, dl.hands);
+    const master = new D.Table({ rules: r, opener: open.seat, hero: 0, forcedOpen: open.tile });
+    dl.hands.forEach((h, s) => master.setHand(s, h));
+    // Seats 1 and 3 play heaviest-first; 0 and 2 play at random.
+    while (!master.isOver() && master.d.chain.length < 14) {
+      const seat = master.turn;
+      const legal = master.legalPlays(seat);
+      const m = seat % 2 ? D.chooseMove(master, { level: 'easy' }) : legal[Math.floor(rnd() * legal.length)];
+      master.record(D.toRecord(master, m));
+    }
+    if (master.isOver()) continue;
+    const a = new D.Analysis(master.viewFor(0), { effort: 'live', weighting: true, useNet: false });
+    if (!a.posterior) continue;
+    for (const s of [1, 3]) {
+      const p = a.posterior[s];
+      tries++;
+      if (a.styles[p.indexOf(Math.max(...p))] === 'heavy') hits++;
+    }
+  }
+  assert.ok(tries >= 10);
+  assert.ok(hits / tries >= 0.7, `heavy identified ${hits}/${tries}`);
+});
+
+test('analysis runs with a network: rollouts to the exact horizon, styles reported', () => {
+  // A random network (all weights tiny) is enough to exercise the plumbing.
+  const mk = (rows, cols) => {
+    const a = new Float32Array(rows * cols);
+    const rnd = D.mulberry32(rows * 31 + cols);
+    for (let i = 0; i < a.length; i++) a[i] = (rnd() - 0.5) * 0.1;
+    return { shape: cols ? [rows, cols] : [rows], data: Buffer.from(a.buffer).toString('base64') };
+  };
+  const h = 16, qh = 8;
+  const doc = {
+    format: 'dominord-net/1', stateDim: D.STATE_DIM, actionDim: D.ACTION_DIM, valueScale: 50, hidden: h, qhidden: qh,
+    layers: {
+      'trunk.0.weight': mk(h, D.STATE_DIM), 'trunk.0.bias': mk(h, 1), 'trunk.2.weight': mk(h, h), 'trunk.2.bias': mk(h, 1),
+      'q.0.weight': mk(qh, h + D.ACTION_DIM), 'q.0.bias': mk(qh, 1), 'q.2.weight': mk(1, qh), 'q.2.bias': mk(1, 1),
+      'v.0.weight': mk(64, h), 'v.0.bias': mk(64, 1), 'v.2.weight': mk(1, 64), 'v.2.bias': mk(1, 1),
+    },
+  };
+  const net = new D.Net(doc);
+  const r = D.makeRules('patio');
+  const t = new D.Table({ rules: r, opener: 0, hero: 0, forcedOpen: D.DOUBLE_SIX });
+  t.setHand(0, D.parseTiles('6-6 5-5 3-1 0-0 2-6 4-4 5-0'));
+  t.record({ k: 'play', p: 0, tile: D.DOUBLE_SIX });
+  t.record({ k: 'play', p: 1, tile: D.parseTile('6-1') });
+  t.record({ k: 'play', p: 2, tile: D.parseTile('6-3') });
+  t.record({ k: 'play', p: 3, tile: D.parseTile('1-1') });
+  const snap = D.analyze(t, { effort: 'live', full: true, net, cfg: { timeMs: 800 } });
+  assert.ok(snap.net);
+  assert.ok(snap.moves.length >= 1 && snap.styles && snap.styles[1]);
+  assert.ok(Math.abs(Object.values(snap.styles[1]).reduce((a, b) => a + b, 0) - 1) < 1e-9);
+  // The network alone picks a legal move.
+  const m = D.chooseMove(t, { level: 'net', net });
+  assert.ok(t.legalPlays(0).includes(m));
+});

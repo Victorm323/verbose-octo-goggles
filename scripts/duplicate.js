@@ -9,8 +9,11 @@
 //   node scripts/duplicate.js --a live --b greedy --deals 200 --rules patio
 //
 // Engines: greedy (heaviest legal tile), random, pyparity (the Python
-// engine's DEFAULT config), live | normal | deep, and any of those with
-// ":noweight" appended to switch off the choice-likelihood weighting.
+// engine's DEFAULT config), live | normal | deep, and `net` (the trained
+// network alone, argmax Q, no search).  Flags after a colon: ":noweight"
+// switches off reading the players' choices, ":net" lets the search use the
+// network (rollouts, style model).  --net picks the network file
+// (default web/models/dominord-net.json).
 'use strict';
 const D = require('../web/engine.js');
 
@@ -23,15 +26,23 @@ const DEALS = +arg('deals', 50);
 const RULES = D.makeRules(arg('rules', 'patio'));
 const SEED = +arg('seed', 1);
 const TIME = arg('time') ? +arg('time') : null;
+const NET_PATH = arg('net', require('path').join(__dirname, '..', 'web', 'models', 'dominord-net.json'));
+let netLoaded = false;
+function needNet() {
+  if (!netLoaded) { D.setNet(JSON.parse(require('fs').readFileSync(NET_PATH, 'utf8'))); netLoaded = true; }
+}
 
 function chooser(spec) {
-  const [name, flag] = spec.split(':');
+  const [name, ...flags] = spec.split(':');
+  if (name === 'net') { needNet(); return (t) => D.chooseMove(t, { level: 'net' }); }
   if (name === 'greedy') return (t) => D.chooseMove(t, { level: 'easy' });
   if (name === 'random') {
     const rnd = D.mulberry32(SEED * 7 + 1);
     return (t) => { const ms = t.viewFor(t.turn).legalPlays(t.turn); return ms[Math.floor(rnd() * ms.length)]; };
   }
-  const opts = { effort: name, weighting: flag !== 'noweight', seed: SEED };
+  const useNet = flags.includes('net');
+  if (useNet) needNet();
+  const opts = { effort: name, weighting: !flags.includes('noweight'), seed: SEED, useNet };
   if (TIME) opts.cfg = { timeMs: TIME };
   return (t) => D.chooseMove(t, opts);
 }
