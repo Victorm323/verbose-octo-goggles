@@ -97,7 +97,7 @@ def export_json(model: DomNet, path: Path, meta: dict | None = None) -> None:
            "temperature": (meta or {}).get("temperature", 3.0),
            "layers": layers, "meta": meta or {}}
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(doc))
+    path.write_text(json.dumps(doc), encoding="utf-8")
 
 
 def numpy_q(model_doc: dict, s: np.ndarray, a: np.ndarray) -> float:

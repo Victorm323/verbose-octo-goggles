@@ -90,7 +90,10 @@ def _load_snapshots(out: Path, cache: dict, keep: int) -> list[str]:
         paths.append(champ)
     names = []
     for p in paths:
-        key = p.stem if p.name != "champion.pt" else "champion@" + str(int(p.stat().st_mtime))
+        try:
+            key = p.stem if p.name != "champion.pt" else "champion@" + str(int(p.stat().st_mtime))
+        except OSError:  # being replaced right now (Windows); next round
+            continue
         if key not in cache:
             try:
                 cache[key] = M.load(p)
@@ -115,7 +118,7 @@ def actor_main(idx: int, out: str, pop: Population, q, stop, games: int, seed: i
             if mt != mtime:
                 cache["current"] = M.load(cur)
                 mtime = mt
-        except (FileNotFoundError, RuntimeError, EOFError):
+        except (OSError, RuntimeError, EOFError):   # OSError: mid-replace on Windows
             time.sleep(0.5)
             continue
         snaps = _load_snapshots(out_p, cache, keep=8)
@@ -127,7 +130,16 @@ def actor_main(idx: int, out: str, pop: Population, q, stop, games: int, seed: i
 def _atomic_save(net: M.DomNet, path: Path, meta: dict) -> None:
     tmp = path.with_suffix(".tmp")
     M.save(net, tmp, meta)
-    os.replace(tmp, path)
+    # Windows refuses to replace a file another process has open, and the
+    # actors reload current.pt constantly; their reads are brief, so retry.
+    for attempt in range(200):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if attempt == 199:
+                raise
+            time.sleep(0.05)
 
 
 def evaluate(out: Path, net: M.DomNet, device, deals: int, seed: int, log) -> dict:
@@ -194,7 +206,7 @@ def main(argv=None) -> None:
     if args.resume and (out / "current.pt").exists():
         ck = torch.load(out / "current.pt", map_location="cpu", weights_only=True)
         net = M.DomNet(ck["hidden"], ck["qhidden"])
-        net.load_state_dict(ck["state"])
+        net.load_state_dict(ck["state"], strict=False)   # older runs lack newer heads
         hands_total = ck["meta"].get("hands", 0)
         steps = ck["meta"].get("steps", 0)
         t_prev = ck["meta"].get("seconds", 0.0)
@@ -204,8 +216,8 @@ def main(argv=None) -> None:
     net.to(device)
     opt = torch.optim.Adam(net.parameters(), lr=args.lr)
     pop = Population(rules=args.rules.split(","), epsilon=args.epsilon)
-    logf = open(out / "log.jsonl", "a")
-    ladder = open(out / "ladder.jsonl", "a")
+    logf = open(out / "log.jsonl", "a", encoding="utf-8")
+    ladder = open(out / "ladder.jsonl", "a", encoding="utf-8")
 
     def log(rec: dict) -> None:
         line = json.dumps(rec)
@@ -215,7 +227,7 @@ def main(argv=None) -> None:
 
     def meta() -> dict:
         return {"hands": hands_total, "steps": steps, "seconds": t_prev + time.time() - t0,
-                "rules": pop.rules, "hidden": args.hidden}
+                "rules": pop.rules, "hidden": net.hidden}
 
     t0 = time.time()
     _atomic_save(net, out / "current.pt", meta())

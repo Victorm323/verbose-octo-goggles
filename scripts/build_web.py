@@ -17,12 +17,15 @@ it and hand its source to a Web Worker.  A trained network in
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "web"
 DIST = ROOT / "dist"
+#: Largest trunk width that still runs well on a mid-range phone (measured).
+PHONE_HIDDEN = 384
 
 
 def _script(text: str, name: str) -> str:
@@ -44,7 +47,13 @@ def build() -> tuple[Path, Path]:
     net_tag = ""
     if net_path.exists():
         # The trained network (docs/TRAINING.md); JSON, so it cannot hold "</script".
-        net_tag = f'<script type="application/json" id="net-doc">{_script(net_path.read_text(), "network")}</script>\n'
+        net_src = net_path.read_text(encoding="utf-8")
+        hidden = json.loads(net_src).get("hidden", 0)
+        if hidden > PHONE_HIDDEN:
+            # docs/TRAINING.md "Phones": past this the page is slow to load
+            # and each network call costs a mid-range Android too much.
+            print(f"warning: network hidden={hidden} exceeds the phone budget ({PHONE_HIDDEN})")
+        net_tag = f'<script type="application/json" id="net-doc">{_script(net_src, "network")}</script>\n'
     html = html.replace('<script src="app.js"></script>', f"{net_tag}<script>\n{app}</script>")
     for needle in ('href="style.css"', 'src="engine.js"', 'src="app.js"'):
         if needle in html:

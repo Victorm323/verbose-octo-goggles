@@ -5,6 +5,25 @@ point at. It is the method that took DouZero to superhuman play in DouDizhu,
 the closest solved analogue to this game (hidden hands, an implicit team,
 similar branching).
 
+## Windows: one double-click
+
+`train_gpu.bat` in the repository root does everything on a Windows PC with an
+NVIDIA card (written for a GTX 1070):
+
+1. checks the NVIDIA driver (`nvidia-smi`), Python 3.10+, numpy and PyTorch;
+2. runs a real kernel on the GPU. A GTX 10xx is compute 6.1, which recent CUDA
+   12.8+/13 wheels no longer include, so `torch.cuda.is_available()` alone
+   would be a false positive;
+3. if anything is missing, offers to install it into a private `.venv`: the
+   CUDA 12.6 PyTorch wheels, falling back to CUDA 11.8 if those cannot run on
+   the card;
+4. trains (`--resume` if `runs\gpu` exists, otherwise warm-started from
+   `checkpoints\cpu2.pt`), then rebuilds `dist\dominord-mesa.html`.
+
+`train_gpu.bat 8` trains for 8 hours and `train_gpu.bat 8 6` also sets 6
+actors. The default is 24 hours with logical CPUs − 2 actors. Run it again to
+continue.
+
 ## Quick start
 
 `checkpoints/cpu2.pt` is the network trained so far (~5M self-play hands on a
@@ -43,7 +62,7 @@ below.
 |---|---|---|
 | Environment | `dominord/train/env.py` | The browser engine's bitmask `State` in Python ints. It plays and scores exactly like `dominord.state`/`scoring` (tested), covering 2v2 and 1v1 with or without drawing. |
 | Features | `dominord/train/features.py` | 227 numbers for one seat's information set plus 48 for a candidate move. Only the seat's own hand and public history, so nothing hidden leaks. `web/engine.js` has an identical twin (tested number for number). |
-| Network | `dominord/train/model.py` | Four heads on one trunk: **Q** (value of each move), **V** (expected hand points), **win/tranque** (P our pair takes the hand, P it ends blocked) and **belief** (who holds each unseen tile). About 150k weights, small enough for the browser to call thousands of times per search. |
+| Network | `dominord/train/model.py` | Four heads on one trunk: **Q** (value of each move), **V** (expected hand points), **win/tranque** (P our pair takes the hand, P it ends blocked) and **belief** (who holds each unseen tile). About 225k weights (two 256-wide layers), small enough for a phone to call thousands of times per search; see *Phones* below. |
 | Observer rows | `selfplay.play` | At every decision the same moment is also encoded from another seat. V, win/tranque and belief then learn positions where the seat evaluated is *not* the one to move, which is what the UI asks for. Q trains on real decisions only. |
 | Deep Monte-Carlo | `selfplay.py`, `train.py` | Q is regressed straight onto the final hand return of the move played. There is no bootstrapping to diverge, and the policy is argmax Q. |
 | Belief head | `model.py` | Predicts who holds each unseen tile, trained on the true deal. It forces the trunk to learn to read passes and choices, and inference-aware Q values follow. |
@@ -97,13 +116,54 @@ actor, so a 16-core machine with any recent NVIDIA card makes ~12k hands/s,
 i.e. **~40M hands an hour**. DouZero trained on billions of frames over days.
 Budget accordingly: overnight runs, then days.
 
+### What a GTX 1070 machine can expect
+
+The GPU is not the limit: a 1070 runs the learner's batch of 2048 in a few
+milliseconds. Hands come from the CPU, at roughly 600–800 hands/s per actor
+(measured here: 3 actors ≈ 640 hands/s with the learner sharing the CPU).
+
+| CPU | actors | hands/hour | 50M hands | 300M hands |
+|---|---|---|---|---|
+| 4 cores / 8 threads (i7-7700) | 6 | ~10–13M | ~4–5 h | ~1–1.5 days |
+| 6 cores / 12 threads (Ryzen 5 3600, i7-8700) | 10 | ~16–22M | ~2.5–3 h | ~15–19 h |
+| 8 cores / 16 threads | 14 | ~22–30M | ~2 h | ~10–14 h |
+
+Hyperthreads add less than a real core, so read the upper end of each range
+with caution. Where the milestones fall can only be measured, but as a guide:
+`cpu2` (~5M hands) still loses to greedy in 2v2. Expect the first promotion
+(beating greedy in both formats) in the tens of millions of hands, an
+afternoon to a night. Expect stage 2 (the network alone matching the search)
+in the hundreds of millions, several days of nights.
+
+## Phones
+
+The page has to run well on a recent iPhone and on a Redmi Note 13 Pro+
+(Dimensity 7200-Ultra) as the baseline. Measured in Node on this repository's
+container (a slow server core, roughly a mid-range phone core):
+
+| trunk width | weights | page adds | one decision (trunk + 4 moves) | live-search deals in 500 ms |
+|---|---|---|---|---|
+| 128 | 88k | 0.5 MB | 0.11 ms | same |
+| **256 (shipped)** | **225k** | **1.2 MB** | **0.30 ms** | **same** |
+| 384 | 411k | 2.2 MB | 0.51 ms | same |
+| 512 | 647k | 3.4 MB | 0.88 ms | not measured |
+
+The search budget is spent in the exact endgame solver, not in the network,
+so the number of deals a 500 ms analysis reaches did not change between 128 and
+384. The network read panel is a single call, under a millisecond on any of
+these sizes. The Q head applies the trunk half of its first layer once per
+position, so each candidate move only costs its 48 sparse features.
+`scripts/build_web.py` warns above 384, the phone ceiling. Width 256 is the
+default because it warm-starts from `checkpoints/cpu2.pt`, and what limits
+strength today is training hands, not capacity.
+
 ## A schedule that has a chance of superhuman
 
 | Stage | Command | Gate to pass before the next stage |
 |---|---|---|
 | 1 | `--hours 12` (defaults) | champion beats `greedy` in both formats |
 | 2 | `--resume --hours 48 --replay-ratio 2` | `node scripts/duplicate.js --a net --b live --deals 1000`: the network alone ties or beats the search |
-| 3 | new run `--hidden 512 --qhidden 256`, 3–5 days | `--a live:net --b live` ≥ +3 pts/hand, CI above zero (ROADMAP Phase 2 acceptance) |
+| 3 | new run `--hidden 384 --qhidden 192` (the phone ceiling), 3–5 days | `--a live:net --b live` ≥ +3 pts/hand, CI above zero (ROADMAP Phase 2 acceptance) |
 | 4 | keep going; widen `Population.styles` with fitted clusters from real games | beats every earlier champion on the ladder |
 
 "Superhuman" is not something code can promise. It is a claim you establish on

@@ -1297,10 +1297,18 @@
   }
 
   function dense(W, b, x, nin, nout, out, relu) {
+    // Unrolled by four: this is the hot loop of every network call, and phones
+    // (the baseline is a mid-range Android) feel each microsecond.
+    const n4 = nin - (nin & 3);
     for (let i = 0; i < nout; i++) {
-      let s = b[i];
       const row = i * nin;
-      for (let j = 0; j < nin; j++) s += W[row + j] * x[j];
+      let s0 = b[i], s1 = 0, s2 = 0, s3 = 0, j = 0;
+      for (; j < n4; j += 4) {
+        s0 += W[row + j] * x[j]; s1 += W[row + j + 1] * x[j + 1];
+        s2 += W[row + j + 2] * x[j + 2]; s3 += W[row + j + 3] * x[j + 3];
+      }
+      for (; j < nin; j++) s0 += W[row + j] * x[j];
+      const s = s0 + s1 + s2 + s3;
       out[i] = relu && s < 0 ? 0 : s;
     }
     return out;
@@ -1320,7 +1328,16 @@
       this.hasBelief = !!L['belief.weight'];
       this.a1 = new Float32Array(64); this.a2 = new Float32Array(2); this.bl = new Float32Array(112);
       this.h1 = new Float32Array(this.h); this.h2 = new Float32Array(this.h);
-      this.qin = new Float32Array(this.h + ACTION_DIM); this.q1 = new Float32Array(this.qh);
+      this.q1 = new Float32Array(this.qh); this.qpre = new Float32Array(this.qh);
+      // q.0 sees [trunk output, move features]; split its weights so the trunk
+      // half is applied once per state and each move only pays for its own
+      // (mostly zero) 48 features.
+      const W = L['q.0.weight'], nin = this.h + ACTION_DIM;
+      this.qWh = new Float32Array(this.qh * this.h); this.qWa = new Float32Array(ACTION_DIM * this.qh);
+      for (let i = 0; i < this.qh; i++) {
+        for (let j = 0; j < this.h; j++) this.qWh[i * this.h + j] = W[i * nin + j];
+        for (let j = 0; j < ACTION_DIM; j++) this.qWa[j * this.qh + i] = W[i * nin + this.h + j];
+      }
       this.v1 = new Float32Array(64); this.one = new Float32Array(1);
     }
     /** Encode a state once; q(a) then scores moves against it. */
@@ -1328,15 +1345,24 @@
       const L = this.L;
       dense(L['trunk.0.weight'], L['trunk.0.bias'], s, STATE_DIM, this.h, this.h1, true);
       dense(L['trunk.2.weight'], L['trunk.2.bias'], this.h1, this.h, this.h, this.h2, true);
-      this.qin.set(this.h2, 0);
+      dense(this.qWh, L['q.0.bias'], this.h2, this.h, this.qh, this.qpre, false);
       return this.h2;
     }
     /** Q in hand points for the mover's pair. */
     q(a) {
       const L = this.L;
-      this.qin.set(a, this.h);
-      dense(L['q.0.weight'], L['q.0.bias'], this.qin, this.h + ACTION_DIM, this.qh, this.q1, true);
-      return dense(L['q.2.weight'], L['q.2.bias'], this.q1, this.qh, 1, this.one, false)[0] * this.scale;
+      const qh = this.qh, q1 = this.q1, Wa = this.qWa;
+      q1.set(this.qpre);
+      for (let j = 0; j < ACTION_DIM; j++) {
+        const x = a[j];
+        if (x === 0) continue;
+        const col = j * qh;
+        for (let i = 0; i < qh; i++) q1[i] += Wa[col + i] * x;
+      }
+      const W2 = L['q.2.weight'];
+      let z = L['q.2.bias'][0];
+      for (let i = 0; i < qh; i++) if (q1[i] > 0) z += W2[i] * q1[i];
+      return z * this.scale;
     }
     value() {
       const L = this.L;

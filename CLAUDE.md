@@ -17,6 +17,7 @@ python3 tests/js/make_fixtures.py > tests/js/fixtures.json   # Python oracle →
 node --test tests/js/*.test.js                               # conformance + self-checks
 python3 scripts/build_web.py                                 # → dist/dominord-mesa.html
 node scripts/duplicate.js --a live --b pyparity --deals 200  # duplicate-scored strength
+# Windows GPU training: train_gpu.bat (checks deps, trains, rebuilds); docs/TRAINING.md
 ```
 
 ## Layout
